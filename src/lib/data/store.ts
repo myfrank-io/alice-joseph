@@ -90,7 +90,7 @@ async function seedIfEmpty(sql: NeonQueryFunction<false, false>): Promise<void> 
       const { id, createdAt, updatedAt, ...rest } = doc;
       await sql`
         insert into records (id, collection, data, created_at, updated_at)
-        values (${id}, ${name}, ${JSON.stringify(rest)}, ${createdAt}, ${updatedAt})
+        values (${id}, ${name}, ${JSON.stringify(rest)}::jsonb, ${createdAt}::timestamptz, ${updatedAt}::timestamptz)
         on conflict (id) do nothing
       `;
     }
@@ -150,26 +150,18 @@ export async function list<T extends Doc>(collection: CollectionName): Promise<T
   return rows.map((row) => toDoc<T>(row));
 }
 
-/** Une seule aller-retour pour les pages qui croisent plusieurs collections. */
+/**
+ * Plusieurs collections d'un coup, pour les pages qui les croisent.
+ *
+ * Une requête par collection, lancées ensemble : sur le pilote HTTP de Neon
+ * c'est aussi rapide qu'une requête unique, et cela évite de dépendre de la
+ * façon dont le pilote sérialise un tableau passé en paramètre.
+ */
 export async function listMany(
   collections: CollectionName[],
 ): Promise<Record<string, Doc[]>> {
-  const sql = getSql();
-  if (!sql) {
-    return Object.fromEntries(collections.map((c) => [c, byRecent(memory()[c])]));
-  }
-
-  await ensureSchema(sql);
-  const rows = (await sql`
-    select id, collection, data, created_at, updated_at
-      from records
-     where collection = any(${collections})
-     order by created_at desc
-  `) as (Parameters<typeof toDoc>[0] & { collection: string })[];
-
-  const out: Record<string, Doc[]> = Object.fromEntries(collections.map((c) => [c, []]));
-  for (const row of rows) out[row.collection]?.push(toDoc(row));
-  return out;
+  const results = await Promise.all(collections.map((name) => list(name)));
+  return Object.fromEntries(collections.map((name, index) => [name, results[index]]));
 }
 
 export async function get<T extends Doc>(
@@ -211,7 +203,7 @@ export async function insert<T extends Doc>(
   const { id, createdAt, updatedAt, ...rest } = doc;
   await sql`
     insert into records (id, collection, data, created_at, updated_at)
-    values (${id}, ${collection}, ${JSON.stringify(rest)}, ${createdAt}, ${updatedAt})
+    values (${id}, ${collection}, ${JSON.stringify(rest)}::jsonb, ${createdAt}::timestamptz, ${updatedAt}::timestamptz)
   `;
   return doc;
 }
@@ -237,7 +229,7 @@ export async function update<T extends Doc>(
   const { id: _id, createdAt: _createdAt, updatedAt, ...rest } = next;
   await sql`
     update records
-       set data = ${JSON.stringify(rest)}, updated_at = ${updatedAt}
+       set data = ${JSON.stringify(rest)}::jsonb, updated_at = ${updatedAt}::timestamptz
      where collection = ${collection} and id = ${id}
   `;
   return next;
