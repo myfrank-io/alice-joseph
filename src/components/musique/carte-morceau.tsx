@@ -11,7 +11,6 @@ import {
   BoutonEcouter,
   Coeurs,
   LienDuService,
-  MentionSansLecteur,
   Pochette,
 } from "@/components/musique/parties";
 
@@ -79,8 +78,6 @@ export function CarteMorceau({
             {track.note}
           </p>
         ) : null}
-
-        {lecteur ? null : <MentionSansLecteur />}
 
         <div className="flex flex-wrap items-center gap-1">
           <Coeurs trackId={track.id} loves={track.loves} who={who} />

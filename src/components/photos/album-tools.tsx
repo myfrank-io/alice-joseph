@@ -112,7 +112,7 @@ export function OutilsAlbum({ album }: { album: Album }) {
       >
         <p className="text-sm leading-relaxed text-ink-2">
           «&nbsp;{album.title}&nbsp;» disparaîtra de la liste des albums. Aucune photo
-          n&apos;est supprimée&nbsp;: elles perdent seulement cette étiquette.
+          n&rsquo;est supprimée&nbsp;: elles perdent seulement cette étiquette.
         </p>
       </Sheet>
     </>

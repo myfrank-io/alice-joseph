@@ -90,7 +90,7 @@ export default async function PlaylistPage({
           {dedans.length === 0 ? (
             <EmptyState icon={<IconMusique size={24} />} title="Playlist vide">
               Pioche des morceaux déjà gardés, ou colle un lien Spotify ou YouTube : on
-              s&apos;occupe du reste. Les deux boutons sont juste au-dessus.
+              s&rsquo;occupe du reste. Les deux boutons sont juste au-dessus.
             </EmptyState>
           ) : (
             <ol className="flex flex-col gap-3">

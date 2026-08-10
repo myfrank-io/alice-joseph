@@ -223,7 +223,7 @@ export function MenuPlaylist({ playlist }: { playlist: Playlist }) {
           <div className="flex flex-col gap-5">
             <p className="text-sm leading-relaxed text-ink-2">
               La playlist disparaît, les morceaux restent dans la bibliothèque. Rien ne se perd,
-              sauf l&apos;ordre qu&apos;on leur avait donné.
+              sauf l&rsquo;ordre qu&rsquo;on leur avait donné.
             </p>
             <div className="flex justify-end gap-2">
               <Button type="button" variant="ghost" size="md" onClick={() => setVue("menu")}>

@@ -29,7 +29,7 @@ export default async function ReglagesPage() {
           <Avatar who={who} size={48} ring />
           <div className="min-w-0 flex-1">
             <p className="font-display text-heading text-ink">{whoLabel(who)}</p>
-            <p className="text-sm text-ink-3">C&apos;est toi qui es connecté sur cet appareil.</p>
+            <p className="text-sm text-ink-3">C&rsquo;est toi qui es connecté sur cet appareil.</p>
           </div>
           <form action={seDeconnecter}>
             <Button type="submit" variant="ghost" size="sm">

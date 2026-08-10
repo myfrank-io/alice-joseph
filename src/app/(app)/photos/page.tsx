@@ -65,7 +65,7 @@ export default async function PhotosPage({
               title="Pas encore d’album"
               action={<BoutonNouvelAlbum variant="primary" />}
             >
-              Un album, c&apos;est une parenthèse&nbsp;: un voyage, une saison, une soirée.
+              Un album, c&rsquo;est une parenthèse&nbsp;: un voyage, une saison, une soirée.
               Rassemble les photos qui vont ensemble.
             </EmptyState>
           ) : (

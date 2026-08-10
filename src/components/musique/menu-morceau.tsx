@@ -79,7 +79,7 @@ export function MenuMorceau({
             <li>
               <button type="button" className={cx(LIGNE, "text-ink")} onClick={() => setVue("modifier")}>
                 <IconCrayon size={19} className="text-ink-3" />
-                Modifier le titre, l&apos;artiste ou la note
+                Modifier le titre, l&rsquo;artiste ou la note
               </button>
             </li>
             <li>
@@ -178,7 +178,7 @@ export function MenuMorceau({
           <div className="flex flex-col gap-5">
             <p className="text-sm leading-relaxed text-ink-2">
               « {track.title} » sera retiré de la bibliothèque et de toutes les playlists. La note
-              qui l&apos;accompagne partira avec.
+              qui l&rsquo;accompagne partira avec.
             </p>
             <div className="flex justify-end gap-2">
               <Button type="button" variant="ghost" size="md" onClick={() => setVue("menu")}>
@@ -214,7 +214,7 @@ function ChoixPlaylists({ track, playlists }: { track: Track; playlists: Playlis
   if (playlists.length === 0) {
     return (
       <p className="text-sm leading-relaxed text-ink-2">
-        Aucune playlist pour l&apos;instant. Crée-en une depuis la page Musique, puis reviens
+        Aucune playlist pour l&rsquo;instant. Crée-en une depuis la page Musique, puis reviens
         ranger ce morceau.
       </p>
     );

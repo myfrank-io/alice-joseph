@@ -553,7 +553,7 @@ export function CarteMonde({
           <div className="absolute inset-0 grid place-items-center">
             {echec ? (
               <div className="flex flex-col items-center gap-3 px-6 text-center">
-                <p className="text-sm text-ink-2">Le fond de carte n&apos;a pas pu être chargé.</p>
+                <p className="text-sm text-ink-2">Le fond de carte n&rsquo;a pas pu être chargé.</p>
                 <Button variant="outline" size="sm" onClick={() => setEssai((n) => n + 1)}>
                   Réessayer
                 </Button>
@@ -631,7 +631,7 @@ export function CarteMonde({
             <p className="min-w-0 flex-1 text-[0.8125rem] leading-snug text-ink">
               {horsMonde ? (
                 <span className="font-semibold text-bad">
-                  Ce point est en dehors du monde — vise l&apos;intérieur de la carte.
+                  Ce point est en dehors du monde — vise l&rsquo;intérieur de la carte.
                 </span>
               ) : (
                 <>

@@ -107,8 +107,8 @@ export default async function MusiquePage({
                 title="La bibliothèque est vide"
                 action={<AjouterMorceau playlists={playlists} plein />}
               >
-                Colle un lien Spotify ou YouTube, on s&apos;occupe du reste : titre, pochette et
-                lecteur arrivent tout seuls. À toi d&apos;écrire pourquoi ce morceau compte.
+                Colle un lien Spotify ou YouTube, on s&rsquo;occupe du reste : titre, pochette et
+                lecteur arrivent tout seuls. À toi d&rsquo;écrire pourquoi ce morceau compte.
               </EmptyState>
             ) : visibles.length === 0 ? (
               <EmptyState icon={<IconMusique size={24} />} title="Rien de ce côté-là">

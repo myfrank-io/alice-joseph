@@ -329,7 +329,7 @@ export function Visionneuse({
                   >
                     {albums.length === 0 ? (
                       <p className="px-2.5 py-2 text-[0.8125rem] text-[color:var(--v-texte-3)]">
-                        Aucun album pour l&apos;instant.
+                        Aucun album pour l&rsquo;instant.
                       </p>
                     ) : (
                       albums.map((candidat) => {
@@ -384,7 +384,7 @@ export function Visionneuse({
                     disabled={enCours}
                     onClick={() => agir(() => retirerPhotoAlbum(album.id, photo.id))}
                   >
-                    Retirer de l&apos;album
+                    Retirer de l&rsquo;album
                   </Pilule>
                 </>
               ) : null}

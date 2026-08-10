@@ -92,7 +92,7 @@ export function SideRail({ footer }: { footer?: React.ReactNode }) {
         <span className="font-display text-[1.375rem] leading-tight tracking-tight text-ink">
           Alice <span className="text-accent">&</span> Joseph
         </span>
-        <span className="mt-1 block text-xs text-ink-3">Rien qu&apos;à nous</span>
+        <span className="mt-1 block text-xs text-ink-3">Rien qu&rsquo;à nous</span>
       </Link>
 
       <nav aria-label="Navigation principale">

@@ -51,7 +51,7 @@ export default async function EntrerPage({
 
           {erreur === "code" ? (
             <p role="alert" className="mt-2.5 text-center text-xs font-semibold text-bad">
-              Ce n&apos;est pas le bon code. Réessaie.
+              Ce n&rsquo;est pas le bon code. Réessaie.
             </p>
           ) : null}
           {erreur === "personne" ? (
@@ -70,7 +70,7 @@ export default async function EntrerPage({
 
         {usingDefaultPasscode() ? (
           <p className="mt-5 text-center text-xs leading-relaxed text-ink-3">
-            Aucun code personnalisé n&apos;est encore défini : celui d&apos;origine est{" "}
+            Aucun code personnalisé n&rsquo;est encore défini : celui d&rsquo;origine est{" "}
             <code className="rounded bg-surface-2 px-1.5 py-0.5 font-semibold text-ink-2">
               {DEFAULT_PASSCODE}
             </code>
