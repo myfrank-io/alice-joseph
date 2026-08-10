@@ -1,0 +1,12 @@
+{
+  "name": "Alice & Joseph",
+  "short_name": "A & J",
+  "description": "Notre fil, nos photos, nos musiques, notre carte et nos jeux.",
+  "start_url": "/nous",
+  "display": "standalone",
+  "background_color": "#f8f6f4",
+  "theme_color": "#f8f6f4",
+  "icons": [
+    { "src": "/icone.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }
+  ]
+}
