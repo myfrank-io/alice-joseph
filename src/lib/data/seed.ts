@@ -386,5 +386,7 @@ export function seedCollections(): Record<CollectionName, Doc[]> {
     people,
     games: [],
     settings,
+    // Aucune source d'exemple : un album partagé iCloud se connecte à la main.
+    sources: [],
   };
 }

@@ -23,7 +23,8 @@ export type CollectionName =
   | "places"
   | "people"
   | "games"
-  | "settings";
+  | "settings"
+  | "sources";
 
 export const COLLECTIONS: CollectionName[] = [
   "posts",
@@ -35,6 +36,7 @@ export const COLLECTIONS: CollectionName[] = [
   "people",
   "games",
   "settings",
+  "sources",
 ];
 
 /* ------------------------------- Connexion -------------------------------- */

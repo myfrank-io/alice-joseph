@@ -61,7 +61,10 @@ export function libelleTraits(traits: PersonTraits): string {
 
   return [
     CERCLES.find((c) => c.valeur === traits.cercle)?.label,
-    COTES.find((c) => c.valeur === traits.cote)?.label.toLowerCase(),
+    // Seule l'initiale passe en minuscule : « Du côté d’Alice » garde son prénom.
+    COTES.find((c) => c.valeur === traits.cote)?.label.replace(/^./, (lettre) =>
+      lettre.toLowerCase(),
+    ),
     [traits.cheveux === "chauve" ? "sans cheveux" : `cheveux ${cheveux}`, ...signes].join(", "),
   ]
     .filter(Boolean)

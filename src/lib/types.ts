@@ -51,6 +51,25 @@ export interface Photo extends Doc {
   by: Who;
   favorite: boolean;
   albumIds: string[];
+  /**
+   * `photoGuid` de la photo dans l'album partagé iCloud d'où elle vient.
+   * C'est lui, et lui seul, qui empêche de la réimporter à chaque
+   * synchronisation. Absent pour tout ce qui a été importé à la main.
+   */
+  sourceGuid?: string;
+}
+
+/** Un album partagé iCloud branché par l'un des deux. Un seul par personne. */
+export interface SourceICloud extends Doc {
+  /** Qui a connecté cet album — seule cette personne peut le gérer. */
+  who: Who;
+  token: string;
+  /** Hôte de partition retenu, pour éviter la redirection à chaque appel. */
+  base: string;
+  albumName?: string;
+  lastSyncAt?: string;
+  lastError?: string;
+  importedCount: number;
 }
 
 export interface Album extends Doc {

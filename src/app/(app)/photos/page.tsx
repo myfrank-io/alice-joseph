@@ -1,6 +1,6 @@
 import { requireWho } from "@/lib/auth";
-import { listMany } from "@/lib/data/store";
-import type { Album, Photo } from "@/lib/types";
+import { hasBlobStorage, listMany } from "@/lib/data/store";
+import type { Album, Photo, SourceICloud } from "@/lib/types";
 import { formatNumber, plural } from "@/lib/format";
 import { PageHeader } from "@/components/page-header";
 import { EmptyState, LinkButton } from "@/components/ui";
@@ -10,6 +10,7 @@ import { Galerie } from "@/components/photos/gallery";
 import { CartesAlbums } from "@/components/photos/albums-view";
 import { BoutonAjouter } from "@/components/photos/import-sheet";
 import { BoutonNouvelAlbum } from "@/components/photos/album-create";
+import { BoutonSourcesICloud } from "@/components/photos/sources-icloud";
 import {
   FILTRES,
   filtrerPhotos,
@@ -26,17 +27,26 @@ export default async function PhotosPage({
 }: {
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
-  await requireWho();
+  const who = await requireWho();
 
   const params = await searchParams;
   const vue = lireVue(params.vue);
   const filtre = lireFiltre(params.par);
 
-  const donnees = await listMany(["photos", "albums"]);
+  const donnees = await listMany(["photos", "albums", "sources"]);
   const toutes = trierPhotos(donnees.photos as Photo[]);
   const albums = donnees.albums as Album[];
   const photos = filtrerPhotos(toutes, filtre);
   const lieux = lieuxConnus(toutes);
+
+  /* Le jeton d'un album ne quitte pas le serveur : on n'envoie que l'affichable. */
+  const sources = (donnees.sources as SourceICloud[]).map((source) => ({
+    who: source.who,
+    albumName: source.albumName,
+    lastSyncAt: source.lastSyncAt,
+    lastError: source.lastError,
+    importedCount: source.importedCount,
+  }));
 
   const sousTitre =
     toutes.length === 0
@@ -49,7 +59,16 @@ export default async function PhotosPage({
       <PageHeader
         title="Photos"
         subtitle={sousTitre}
-        action={<BoutonAjouter albums={albums} lieux={lieux} />}
+        action={
+          <>
+            <BoutonSourcesICloud
+              who={who}
+              sources={sources}
+              stockagePret={hasBlobStorage()}
+            />
+            <BoutonAjouter albums={albums} lieux={lieux} />
+          </>
+        }
       />
 
       <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between lg:mt-6">
