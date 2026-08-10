@@ -523,6 +523,12 @@ export async function rangerImageDistante(
     );
   }
 
+  // Annoncé trop gros : on refuse avant de mettre quoi que ce soit en mémoire.
+  const annonce = Number.parseInt(reponse.headers.get("content-length") ?? "", 10);
+  if (Number.isFinite(annonce) && annonce > OCTETS_MAX) {
+    return echec("Une photo dépasse 24 Mo : elle a été laissée de côté.");
+  }
+
   let octets: ArrayBuffer;
   try {
     octets = await reponse.arrayBuffer();
@@ -554,7 +560,7 @@ export function cheminPhoto(who: string, photoGuid: string, taille: "grand" | "m
   }`;
 }
 
-/** « Album de Lisbonne » ou, à défaut, le prénom du propriétaire. */
+/** Le nom donné à l'album ou, à défaut, celui de la personne qui l'a créé. */
 export function nomAlbum(album: AlbumICloud): string {
   const prenom = [album.userFirstName, album.userLastName].filter(Boolean).join(" ").trim();
   return album.streamName ?? (prenom ? `Album de ${prenom}` : "Album partagé");

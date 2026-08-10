@@ -369,7 +369,7 @@ function ModeDEmploi() {
   );
 }
 
-function Etape({ numero, children }: { numero: number; children: React.ReactNode }) {
+function Etape({ numero, children }: { numero: number; children: ReactNode }) {
   return (
     <li className="flex gap-2.5">
       <span className="tabular grid size-5 shrink-0 place-items-center rounded-full bg-surface-2 text-[0.6875rem] font-bold text-ink-2">
