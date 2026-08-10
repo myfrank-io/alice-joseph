@@ -22,7 +22,14 @@ import {
   IconPhotos,
   IconReglages,
 } from "@/components/icons";
-import { daysSince, formatAgo, formatDay, formatNumber, whoLabel } from "@/lib/format";
+import {
+  daysSince,
+  formatAgo,
+  formatDay,
+  formatNumber,
+  formatShortDate,
+  whoLabel,
+} from "@/lib/format";
 
 export default async function NousPage() {
   const who = await requireWho();
@@ -119,7 +126,12 @@ export default async function NousPage() {
                     {souvenir.photo.caption ?? "Sans légende"}
                   </p>
                   <p className="mt-1 text-[0.8125rem] text-ink-3">
-                    {[souvenir.photo.place, souvenir.photo.takenAt].filter(Boolean).join(" · ")}
+                    {[
+                      souvenir.photo.place,
+                      souvenir.photo.takenAt ? formatShortDate(souvenir.photo.takenAt) : null,
+                    ]
+                      .filter(Boolean)
+                      .join(" · ")}
                   </p>
                 </div>
                 <span className="grid size-9 shrink-0 place-items-center rounded-full bg-surface-2 text-ink-2 transition-transform group-hover:translate-x-0.5">
