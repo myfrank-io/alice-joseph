@@ -66,7 +66,7 @@ export default async function Puissance4Page() {
         subtitle={
           duels.alice + duels.joseph + duels.nulles === 0
             ? "Quatre jetons alignés, dans n’importe quel sens"
-            : `Alice ${duels.alice} – ${duels.joseph} Joseph en duel`
+            : `Alice ${duels.alice} – ${duels.joseph} Joseph`
         }
         back={{ href: "/jeux", label: "Retour aux jeux" }}
       />
@@ -90,7 +90,7 @@ export default async function Puissance4Page() {
           {solo.jouees > 0 ? (
             <>
               {" "}
-              Du tien&nbsp;: {solo.gagnees} {plural(solo.gagnees, "victoire", "victoires")} sur{" "}
+              De ton côté&nbsp;: {solo.gagnees} {plural(solo.gagnees, "victoire", "victoires")} sur{" "}
               {solo.jouees} {plural(solo.jouees, "partie", "parties")} contre la machine.
             </>
           ) : null}

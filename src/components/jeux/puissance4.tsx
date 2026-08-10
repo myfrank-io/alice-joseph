@@ -7,7 +7,6 @@ import { COLONNES, LIGNES, hauteurColonne, jouer } from "@/lib/jeux/puissance4";
 import { MODES, libelleMode, resultat, type ModeP4 } from "@/lib/jeux/parties";
 import { abandonner, annulerCoup, creerPartie, jouerCoup } from "@/app/(app)/jeux/actions";
 import { Button, Card, Spinner, cx } from "@/components/ui";
-import { StylesJeux } from "@/components/jeux/styles";
 import { whoLabel } from "@/lib/format";
 
 /**
@@ -68,7 +67,6 @@ export function Puissance4({ who, partie }: { who: Who; partie: VuePartie | null
 
   return (
     <>
-      <StylesJeux />
 
       {enJeu ? (
         <Partie

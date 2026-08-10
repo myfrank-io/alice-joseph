@@ -4,12 +4,7 @@ import { requireWho } from "@/lib/auth";
 import { listMany } from "@/lib/data/store";
 import type { Connect4Game, Doc, Person, Who } from "@/lib/types";
 import { estPuissance4, estQuiEstCe, resultat, scoreDuels } from "@/lib/jeux/parties";
-import {
-  candidats,
-  formuleQuestions,
-  scoreQuiEstCe,
-  type QuiEstCeManche,
-} from "@/lib/jeux/qui-est-ce";
+import { candidats, formuleQuestions, scoreQuiEstCe } from "@/lib/jeux/qui-est-ce";
 import { PageHeader } from "@/components/page-header";
 import { cx } from "@/components/ui";
 import { IconFleche } from "@/components/icons";
@@ -81,6 +76,7 @@ export default async function JeuxPage() {
     (manche) => manche.player !== who && manche.status === "en-cours",
   );
   const qecDerniere = manches.find((manche) => manche.status !== "en-cours") ?? null;
+  const qecRestants = qecEnCours ? candidats(paquet, qecEnCours.eliminated).length : 0;
   const scoreAlice = scoreQuiEstCe(manches.filter((m) => m.player === "alice"));
   const scoreJoseph = scoreQuiEstCe(manches.filter((m) => m.player === "joseph"));
 
@@ -128,8 +124,8 @@ export default async function JeuxPage() {
             qecEnCours
               ? {
                   vif: true,
-                  texte: `Manche en cours · ${candidats(paquet, qecEnCours.eliminated).length} ${plural(
-                    candidats(paquet, qecEnCours.eliminated).length,
+                  texte: `Manche en cours · ${qecRestants} ${plural(
+                    qecRestants,
                     "visage",
                     "visages",
                   )} encore en lice`,
@@ -161,7 +157,7 @@ export default async function JeuxPage() {
       </div>
 
       <section className="mt-4 flex items-center gap-4 rounded-lg border border-dashed border-line-strong bg-surface-2/40 px-5 py-5">
-        <IllustrationBientot className="hidden h-10 w-24 shrink-0 sm:block" />
+        <IllustrationBientot className="h-10 w-16 shrink-0 sm:w-24" />
         <div className="min-w-0">
           <h2 className="font-display text-heading text-ink-2">Bientôt</h2>
           <p className="mt-1 text-[0.8125rem] leading-snug text-ink-3">

@@ -16,7 +16,6 @@ import {
 import { lancerManche, poserQuestion, tenterReponse } from "@/app/(app)/jeux/actions";
 import { Button, Card, Chip, Spinner, cx } from "@/components/ui";
 import { Sheet } from "@/components/sheet";
-import { StylesJeux } from "@/components/jeux/styles";
 import { Portrait } from "@/components/jeux/paquet";
 import { IconFermer, IconValider } from "@/components/icons";
 import { plural, whoLabel } from "@/lib/format";
@@ -67,6 +66,18 @@ export function QuiEstCe({
   const utiles = enJeu ? questionsUtiles(restants) : [];
   const assezDeMonde = paquet.length >= 4;
 
+  /**
+   * Une seule région vivante, toujours montée : un lecteur d'écran n'annonce que
+   * ce qui change dans une région déjà présente, jamais une région qui apparaît.
+   */
+  const statut = enJeu
+    ? annonce(enJeu, paquet)
+    : manche
+      ? manche.status === "gagnee"
+        ? `Manche gagnée en ${formuleQuestions(manche.questionsAsked)}.`
+        : "Manche perdue."
+      : "";
+
   function agir(action: () => Promise<{ ok: boolean; erreur?: string }>, apres?: () => void) {
     setErreur(null);
     setAnnonceDefi(null);
@@ -79,19 +90,21 @@ export function QuiEstCe({
 
   return (
     <>
-      <StylesJeux />
+
+      <p
+        aria-live="polite"
+        aria-atomic="true"
+        className={cx(
+          "text-sm leading-snug text-ink-2",
+          enJeu ? "mt-5 min-h-6" : "sr-only",
+        )}
+      >
+        {statut}
+      </p>
 
       {enJeu ? (
-        <section className="mt-5 flex flex-col gap-4">
+        <section className="mt-3 flex flex-col gap-4">
           <Tableau manche={enJeu} restants={restants.length} />
-
-          <p
-            aria-live="polite"
-            aria-atomic="true"
-            className="min-h-6 text-sm leading-snug text-ink-2"
-          >
-            {annonce(enJeu, paquet)}
-          </p>
 
           <Plateau
             paquet={paquet}
@@ -154,11 +167,12 @@ export function QuiEstCe({
 
             <p className="mt-3 text-xs leading-snug text-ink-3">
               Les deux nombres disent combien de visages répondraient oui, puis non. Une erreur
-              ajoute {PENALITE_ERREUR} questions au compteur, la troisième met fin à la manche.
+              ajoute {PENALITE_ERREUR} questions au compteur&nbsp;; à la {ERREURS_MAX}
+              <sup>e</sup>, la manche est perdue.
             </p>
           </div>
 
-          <div className="flex justify-center">
+          <div className="flex flex-wrap items-center justify-center gap-2">
             <Button
               type="button"
               variant="ghost"
@@ -168,7 +182,28 @@ export function QuiEstCe({
             >
               Abandonner et retirer au sort
             </Button>
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              disabled={enCours || autreEnCours || !assezDeMonde}
+              onClick={() => {
+                setErreur(null);
+                setDefiOuvert(true);
+              }}
+            >
+              Défier {whoLabel(autre)} de son côté
+            </Button>
           </div>
+
+          {annonceDefi ? (
+            <p
+              aria-live="polite"
+              className="rounded-sm bg-accent-soft px-3.5 py-3 text-center text-sm font-semibold text-accent-ink"
+            >
+              {annonceDefi}
+            </p>
+          ) : null}
         </section>
       ) : (
         <section className="mt-5 flex flex-col gap-5">
@@ -390,11 +425,13 @@ function Plateau({
                 </span>
 
                 <span className="jeu-carte-verso flex flex-col rounded-md border border-line bg-surface-2">
-                  <span className="relative min-h-0 flex-1 overflow-hidden opacity-35 grayscale">
-                    <Portrait personne={personne} />
-                  </span>
-                  <span className="absolute inset-x-0 top-1/3 grid place-items-center text-ink-3">
-                    <IconFermer size={26} />
+                  <span className="relative min-h-0 flex-1 overflow-hidden">
+                    <span className="absolute inset-0 opacity-30 grayscale">
+                      <Portrait personne={personne} />
+                    </span>
+                    <span className="absolute inset-0 grid place-items-center text-ink-3">
+                      <IconFermer size={26} />
+                    </span>
                   </span>
                   <span className="truncate px-1.5 py-1.5 text-center text-[0.75rem] font-semibold text-ink-3 line-through">
                     {personne.name}
