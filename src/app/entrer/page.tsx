@@ -20,7 +20,6 @@ export default async function EntrerPage({
 
       <div className="animate-rise relative w-full max-w-[26rem]">
         <div className="mb-9 text-center">
-          <p className="label-caps mb-4 text-ink-3">Notre plateforme</p>
           <h1 className="font-display text-[2.5rem] leading-[1.05] tracking-tight text-ink">
             Alice <span className="text-accent">&</span> Joseph
           </h1>
