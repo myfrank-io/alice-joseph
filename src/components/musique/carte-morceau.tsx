@@ -3,14 +3,14 @@
 import { useId, useMemo, useState } from "react";
 import { Avatar, cardClass, cx } from "@/components/ui";
 import { possessive } from "@/lib/format";
-import { estLienSur, lecteurPour } from "@/lib/musique";
-import type { Playlist, Track, Who } from "@/lib/types";
+import { lecteurPour, ouverturePour } from "@/lib/musique";
+import type { Plateforme, Playlist, Track, Who } from "@/lib/types";
 import { LecteurEmbarque } from "@/components/musique/lecteur";
 import { MenuMorceau } from "@/components/musique/menu-morceau";
 import {
   BoutonEcouter,
+  BoutonOuvrirSur,
   Coeurs,
-  LienDuService,
   Pochette,
 } from "@/components/musique/parties";
 
@@ -31,6 +31,7 @@ export function CarteMorceau({
   playlistId,
   index,
   avatars,
+  plateforme,
 }: {
   track: Track;
   who: Who;
@@ -40,11 +41,18 @@ export function CarteMorceau({
   /** Numéro d'ordre, affiché dans une liste ordonnée. */
   index?: number;
   avatars?: Avatars;
+  /** Le service de la personne connectée : il décide du bouton principal. */
+  plateforme?: Plateforme;
 }) {
   const [joue, setJoue] = useState(false);
   const idLecteur = useId();
   const lecteur = useMemo(() => lecteurPour(track), [track]);
+  const ouverture = useMemo(() => ouverturePour(track, plateforme), [track, plateforme]);
   const avatar = track.by === "alice" ? avatars?.alice : avatars?.joseph;
+
+  // Quand le lecteur est là et qu'on n'a que le lien d'origine, ce lien
+  // n'apprend rien de plus : on garde le seul bouton « Écouter », comme avant.
+  const ouvre = ouverture && !(ouverture.genre === "origine" && lecteur) ? ouverture : null;
 
   return (
     <article className={cx(cardClass, "flex gap-3 p-3.5")}>
@@ -83,14 +91,20 @@ export function CarteMorceau({
           <Coeurs trackId={track.id} loves={track.loves} who={who} />
 
           <span className="ml-auto flex items-center gap-1">
+            {ouvre ? (
+              <BoutonOuvrirSur
+                ouverture={ouvre}
+                variant={ouvre.genre === "plateforme" ? "primary" : "soft"}
+              />
+            ) : null}
+
             {lecteur ? (
               <BoutonEcouter
                 joue={joue}
                 onToggle={() => setJoue((valeur) => !valeur)}
                 controle={idLecteur}
+                compact={ouvre !== null}
               />
-            ) : estLienSur(track.url) ? (
-              <LienDuService url={track.url} provider={track.provider} titre={track.title} />
             ) : null}
 
             <MenuMorceau track={track} playlists={playlists} playlistId={playlistId} />

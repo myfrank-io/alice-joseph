@@ -10,10 +10,12 @@ import { formatAgo, plural, whoLabel } from "@/lib/format";
 /**
  * Le puissance 4.
  *
- * La page ne fait que trois choses : trouver la partie courante de la personne
- * connectée, la donner au plateau dans la forme qu'il attend, et poser autour ce
- * qui ne bouge pas pendant qu'on joue — le compte des duels et les dernières
- * parties. Le choix du mode, l'annulation et l'abandon appartiennent au plateau.
+ * La page ne connaît plus qu'une partie : celle de « chacun de son côté », la
+ * seule qui ait besoin d'un endroit commun pour attendre. Les deux autres modes
+ * se jouent entièrement dans le navigateur et ne reviennent ici qu'une fois
+ * finis — c'est pourquoi on ne cherche plus « la partie courante » mais la
+ * partie distante, et qu'on pose autour ce qui ne bouge pas pendant qu'on joue :
+ * le compte des duels et les dernières parties.
  */
 
 /** Un solo commencé par l'autre ne nous regarde pas ; le reste, si. */
@@ -35,13 +37,16 @@ export default async function Puissance4Page() {
   const who = await requireWho();
 
   const parties = (await list<Doc>("games")).filter(estPuissance4);
-  const miennes = parties.filter((partie) => concerne(partie, who));
 
   /**
-   * La partie en cours si elle existe, sinon la dernière jouée : c'est elle qui
-   * porte l'écran de fin, le temps de savourer avant de relancer.
+   * La partie à distance en cours, sinon la dernière jouée à distance : c'est
+   * elle qui porte l'écran de fin, le temps de savourer avant de relancer. Une
+   * partie locale, elle, n'existe pas ici — le plateau la retrouve tout seul
+   * dans le stockage du navigateur.
    */
-  const courante = miennes.find((partie) => partie.status === "en-cours") ?? miennes[0] ?? null;
+  const distantes = parties.filter((partie) => partie.state.mode === "distance");
+  const courante =
+    distantes.find((partie) => partie.status === "en-cours") ?? distantes[0] ?? null;
 
   const vue: VuePartie | null = courante
     ? {
@@ -56,7 +61,10 @@ export default async function Puissance4Page() {
   const duels = scoreDuels(parties);
   const solo = scoreSolo(parties, who);
   const passees = parties
-    .filter((partie) => partie.status === "terminee" && partie.id !== courante?.id)
+    .filter(
+      (partie) =>
+        partie.status === "terminee" && partie.id !== courante?.id && concerne(partie, who),
+    )
     .slice(0, 6);
 
   return (
@@ -71,7 +79,7 @@ export default async function Puissance4Page() {
         back={{ href: "/jeux", label: "Retour aux jeux" }}
       />
 
-      <Puissance4 who={who} partie={vue} />
+      <Puissance4 who={who} distante={vue} />
 
       <section className="mt-10">
         <h2 className="font-display text-heading text-ink">Le compte</h2>

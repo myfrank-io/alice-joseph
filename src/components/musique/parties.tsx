@@ -3,10 +3,17 @@
 import { useTransition, type SVGProps } from "react";
 import { basculerCoeur } from "@/app/(app)/musique/actions";
 import { Button, buttonClass, cx } from "@/components/ui";
-import { IconCoeur, IconFermer, IconFleche, IconLecture, IconMusique } from "@/components/icons";
+import {
+  IconCoeur,
+  IconFermer,
+  IconFleche,
+  IconLecture,
+  IconLien,
+  IconMusique,
+} from "@/components/icons";
 import { whoLabel } from "@/lib/format";
-import { nomFournisseur } from "@/lib/musique";
-import type { MusicProvider, Who } from "@/lib/types";
+import type { Ouverture } from "@/lib/musique";
+import type { Who } from "@/lib/types";
 
 /**
  * Les petites pièces partagées entre la carte d'un morceau et le bandeau du
@@ -113,19 +120,29 @@ export function Coeurs({
 
 /* -------------------------------- Écouter --------------------------------- */
 
+/**
+ * Le bouton du lecteur intégré : on écoute sans quitter la page.
+ *
+ * En version compacte il n'est plus qu'une icône : la place du bouton principal
+ * revient alors à « Écouter sur Deezer », qui est ce qu'on cherche neuf fois
+ * sur dix. Le nom reste dans l'étiquette d'accessibilité.
+ */
 export function BoutonEcouter({
   joue,
   onToggle,
   controle,
   variant = "soft",
+  compact = false,
   className,
 }: {
   joue: boolean;
   onToggle: () => void;
   controle: string;
   variant?: "soft" | "primary";
+  compact?: boolean;
   className?: string;
 }) {
+  const libelle = joue ? "Masquer le lecteur" : "Écouter ici, sans quitter la page";
   return (
     <Button
       type="button"
@@ -134,39 +151,46 @@ export function BoutonEcouter({
       onClick={onToggle}
       aria-expanded={joue}
       aria-controls={controle}
-      className={cx("h-11", className)}
+      aria-label={compact ? libelle : undefined}
+      title={compact ? libelle : undefined}
+      className={cx("h-11", compact && "w-11 px-0", className)}
     >
       {joue ? <IconFermer size={15} /> : <IconLecture size={15} />}
-      {joue ? "Masquer" : "Écouter"}
+      {compact ? null : joue ? "Masquer" : "Écouter"}
     </Button>
   );
 }
 
-/** Sortie de secours quand aucun lecteur n'est intégrable : le lien d'origine. */
-export function LienDuService({
-  url,
-  provider,
-  titre,
-  variant = "ghost",
+/**
+ * Le bouton principal d'un morceau : il ouvre le morceau là où la personne
+ * connectée écoute vraiment. À défaut, la page song.link, où chaque service a
+ * son lien ; à défaut encore, le lien d'origine. Le libellé dit lequel des trois.
+ */
+export function BoutonOuvrirSur({
+  ouverture,
+  variant = "primary",
   className,
 }: {
-  url: string;
-  provider: MusicProvider;
-  titre: string;
-  variant?: "ghost" | "soft";
+  ouverture: Ouverture;
+  variant?: "primary" | "soft" | "ghost" | "outline";
   className?: string;
 }) {
-  const service = provider === "autre" ? "le service d'origine" : nomFournisseur(provider);
   return (
     <a
-      href={url}
+      href={ouverture.url}
       target="_blank"
       rel="noreferrer"
-      aria-label={`Ouvrir « ${titre} » sur ${service}, dans un nouvel onglet`}
+      aria-label={ouverture.aria}
       className={buttonClass(variant, "md", cx("h-11", className))}
     >
-      Ouvrir
-      <IconFleche size={15} />
+      {ouverture.genre === "plateforme" ? (
+        <IconLecture size={15} />
+      ) : ouverture.genre === "odesli" ? (
+        <IconLien size={15} />
+      ) : (
+        <IconFleche size={15} />
+      )}
+      {ouverture.label}
     </a>
   );
 }

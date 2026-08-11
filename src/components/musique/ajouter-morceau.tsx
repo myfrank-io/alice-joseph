@@ -59,7 +59,7 @@ export function AjouterMorceau({
         open={ouvert}
         onClose={() => setOuvert(false)}
         title="Ajouter un morceau"
-        description="Colle un lien Spotify, YouTube, Deezer ou Apple Music : on récupère le titre et la pochette."
+        description="Colle un lien Spotify, YouTube, Deezer ou Apple Music : on récupère le titre, la pochette, et le même morceau chez l’autre service."
         footer={
           <div className="flex justify-end gap-2">
             <Button type="button" variant="ghost" size="md" onClick={() => setOuvert(false)}>
@@ -72,7 +72,10 @@ export function AjouterMorceau({
         }
       >
         <form id={idFormulaire} action={envoyer} className="flex flex-col gap-5">
-          <Field label="Le lien" hint="On s'occupe du titre, de l'artiste et de la pochette.">
+          <Field
+            label="Le lien"
+            hint="Peu importe ton service : on cherche le même morceau chez celui de l’autre."
+          >
             <Input
               name="url"
               type="url"

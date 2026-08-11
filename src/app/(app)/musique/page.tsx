@@ -1,16 +1,19 @@
 import Link from "next/link";
-import { requireWho } from "@/lib/auth";
+import { otherWho, requireWho } from "@/lib/auth";
 import { listMany } from "@/lib/data/store";
 import { PageHeader } from "@/components/page-header";
 import { EmptyState, SectionTitle } from "@/components/ui";
 import { IconMusique } from "@/components/icons";
 import { plural } from "@/lib/format";
+import { attendSesLiens, peutEtreResolu, plateformeDe } from "@/lib/musique";
 import type { Playlist, Settings, Track } from "@/lib/types";
 import { AjouterMorceau } from "@/components/musique/ajouter-morceau";
 import { CarteMorceau, type Avatars } from "@/components/musique/carte-morceau";
 import { MorceauDuMoment } from "@/components/musique/morceau-du-moment";
+import { ChoixPlateforme } from "@/components/musique/plateforme";
 import { BoutonNouvellePlaylist } from "@/components/musique/playlist-formulaire";
 import { RangeePlaylists } from "@/components/musique/rangee-playlists";
+import { BandeauRetrouverLiens } from "@/components/musique/retrouver-liens";
 import { FiltresBibliotheque, appliquerFiltre, lireFiltre } from "@/components/musique/filtres";
 
 /**
@@ -43,6 +46,15 @@ export default async function MusiquePage({
   const moment = morceauDuMoment(tracks);
   const visibles = appliquerFiltre(tracks, filtre);
 
+  const autre = otherWho(who);
+  const plateforme = plateformeDe(who, reglages);
+
+  // Ceux dont le lien désigne un vrai morceau mais dont les équivalents
+  // manquent encore. Les douze morceaux d'exemple n'en font jamais partie.
+  const aRetrouver = tracks
+    .filter((track) => attendSesLiens(track) && peutEtreResolu(track.url))
+    .map((track) => ({ id: track.id, title: track.title }));
+
   const sousTitre =
     tracks.length === 0
       ? "Rien encore : le premier lien collé lance tout"
@@ -57,6 +69,15 @@ export default async function MusiquePage({
       />
 
       <div className="mt-6 flex flex-col gap-10 lg:mt-8 lg:gap-12">
+        <div className="flex flex-col gap-4">
+          <ChoixPlateforme
+            plateforme={plateforme}
+            autre={autre}
+            plateformeAutre={plateformeDe(autre, reglages)}
+          />
+          <BandeauRetrouverLiens candidats={aRetrouver} />
+        </div>
+
         {moment ? (
           <MorceauDuMoment
             track={moment.track}
@@ -64,6 +85,7 @@ export default async function MusiquePage({
             playlists={playlists}
             avatars={avatars}
             partage={moment.partage}
+            plateforme={plateforme}
           />
         ) : null}
 
@@ -107,8 +129,9 @@ export default async function MusiquePage({
                 title="La bibliothèque est vide"
                 action={<AjouterMorceau playlists={playlists} plein />}
               >
-                Colle un lien Spotify ou YouTube, on s&rsquo;occupe du reste : titre, pochette et
-                lecteur arrivent tout seuls. À toi d&rsquo;écrire pourquoi ce morceau compte.
+                Colle un lien Spotify, Deezer ou YouTube : titre, pochette, lecteur — et le même
+                morceau chez le service de l’autre, pour qu’il s’ouvre chez chacun en un geste. À
+                toi d’écrire pourquoi ce morceau compte.
               </EmptyState>
             ) : visibles.length === 0 ? (
               <EmptyState icon={<IconMusique size={24} />} title="Rien de ce côté-là">
@@ -131,6 +154,7 @@ export default async function MusiquePage({
                       who={who}
                       playlists={playlists}
                       avatars={avatars}
+                      plateforme={plateforme}
                     />
                   </li>
                 ))}

@@ -1,19 +1,39 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useEffect, useMemo, useState, useTransition } from "react";
+import { useRouter } from "next/navigation";
 import type { Who } from "@/lib/types";
 import type { MancheVue, PersonneVue } from "@/lib/jeux/types";
 import {
   ERREURS_MAX,
   PENALITE_ERREUR,
+  aEcarter,
+  bilanManche,
   candidats,
   formuleQuestions,
   question,
   questionsUtiles,
+  tirerAuHasard,
   type Etape,
+  type Question,
   type ScoreQuiEstCe,
 } from "@/lib/jeux/qui-est-ce";
-import { lancerManche, poserQuestion, tenterReponse } from "@/app/(app)/jeux/actions";
+import {
+  chargeDeLaManche,
+  ecrireMancheLocale,
+  effacerMancheLocale,
+  empiler,
+  litMancheLocale,
+  nouvelleMancheLocale,
+  viderLaFile,
+  type MancheLocale,
+} from "@/lib/jeux/local";
+import {
+  enregistrerManche,
+  lancerDefi,
+  poserQuestion,
+  tenterReponse,
+} from "@/app/(app)/jeux/actions";
 import { Button, Card, Chip, Spinner, cx } from "@/components/ui";
 import { Sheet } from "@/components/sheet";
 import { Portrait } from "@/components/jeux/paquet";
@@ -23,11 +43,18 @@ import { plural, whoLabel } from "@/lib/format";
 /**
  * L'écran du « qui est-ce ? ».
  *
- * Tout ce qui décide appartient au serveur : la réponse à une question, les
- * visages à écarter, la victoire. L'écran ne fait que montrer l'état, proposer
- * les questions qui séparent encore, et n'afficher la personne cherchée qu'une
- * fois la manche finie — `secretPersonId` reste nul jusque-là, jusque dans le
- * HTML envoyé au navigateur.
+ * Une manche tirée au sort se joue entièrement ici : le paquet arrive une fois
+ * avec la page, le secret est tiré dans le navigateur, `questionsUtiles()` et
+ * `aEcarter()` tournent dans le navigateur, et la manche en cours est rangée
+ * dans `localStorage`. Aucun aller-retour entre le clic et la carte qui se
+ * retourne. Le serveur n'entend parler de la manche qu'une fois finie.
+ *
+ * Le défi, lui, garde son aller-retour par question, et c'est irréductible :
+ * répondre « oui » ou « non » aux dix-huit questions du jeu revient à donner le
+ * portrait-robot complet du secret — côté, cercle, cheveux, quatre signes —
+ * c'est-à-dire à le désigner. Précalculer les réponses pour les envoyer au
+ * navigateur reviendrait donc à écrire la réponse dans la page. Tant que
+ * quelqu'un d'autre a choisi pour nous, c'est le serveur qui répond.
  */
 
 const QUESTIONS_VISIBLES = 6;
@@ -36,23 +63,33 @@ function autreQue(who: Who): Who {
   return who === "alice" ? "joseph" : "alice";
 }
 
+/** D'où vient la manche affichée : cela décide qui répond aux questions. */
+type Origine = "locale" | "serveur";
+
 export function QuiEstCe({
   who,
   paquet,
-  manche,
+  defi,
+  derniere,
   historique,
   scores,
   autreEnCours,
 }: {
   who: Who;
   paquet: PersonneVue[];
-  /** La manche du joueur : celle en cours, ou la dernière finie. */
-  manche: MancheVue | null;
+  /** Le défi que l'autre a posé et qui attend : la seule manche encore arbitrée par le serveur. */
+  defi: MancheVue | null;
+  /** Ma dernière manche finie côté serveur, pour le récapitulatif. */
+  derniere: MancheVue | null;
   historique: MancheVue[];
   scores: { alice: ScoreQuiEstCe; joseph: ScoreQuiEstCe };
-  /** L'autre a une manche en route : impossible de lui en poser une seconde. */
+  /** L'autre a déjà un défi en attente : impossible de lui en poser un second. */
   autreEnCours: boolean;
 }) {
+  const router = useRouter();
+
+  const [pret, setPret] = useState(false);
+  const [locale, setLocale] = useState<MancheLocale | null>(null);
   const [erreur, setErreur] = useState<string | null>(null);
   const [annonceDefi, setAnnonceDefi] = useState<string | null>(null);
   const [enCours, demarrer] = useTransition();
@@ -61,22 +98,120 @@ export function QuiEstCe({
   const [toutesLesQuestions, setToutesLesQuestions] = useState(false);
 
   const autre = autreQue(who);
-  const enJeu = manche && manche.status === "en-cours" ? manche : null;
-  const restants = enJeu ? candidats(paquet, enJeu.eliminated) : paquet;
-  const utiles = enJeu ? questionsUtiles(restants) : [];
   const assezDeMonde = paquet.length >= 4;
+
+  /** La reprise se fait après le montage : jamais de stockage lu au premier rendu. */
+  useEffect(() => {
+    setLocale(litMancheLocale(who));
+    setPret(true);
+    void viderLaFile("qec", who, enregistrerManche);
+  }, [who]);
+
+  /* -------------------- La manche locale, relue à chaque fois -------------- */
+
+  const secretLocal = useMemo(
+    () => (locale ? (paquet.find((p) => p.id === locale.secretId) ?? null) : null),
+    [locale, paquet],
+  );
+
+  const bilan = useMemo(
+    () => (locale ? bilanManche(paquet, secretLocal, locale.etapes) : null),
+    [locale, paquet, secretLocal],
+  );
+
+  const vueLocale: MancheVue | null =
+    locale && bilan
+      ? {
+          id: locale.id,
+          player: who,
+          setBy: "hasard",
+          status: bilan.status,
+          questionsAsked: bilan.questionsAsked,
+          erreurs: bilan.erreurs,
+          eliminated: bilan.eliminated,
+          etapes: bilan.etapes,
+          secretPersonId: bilan.status === "en-cours" ? null : locale.secretId,
+        }
+      : null;
+
+  /* ------------------------------ Persistance ----------------------------- */
+
+  useEffect(() => {
+    if (!pret || !locale) return;
+    ecrireMancheLocale(who, locale);
+  }, [pret, who, locale]);
+
+  /**
+   * Le paquet est une donnée partagée : l'autre a pu retirer, pendant qu'on
+   * jouait, la personne même qu'on cherchait. La manche n'a alors plus de
+   * réponse possible — on l'arrête au lieu de la laisser tourner à vide.
+   */
+  const statutLocal = vueLocale?.status;
+  useEffect(() => {
+    if (!pret || !locale || secretLocal || statutLocal !== "en-cours") return;
+    effacerMancheLocale(who);
+    setLocale(null);
+    setErreur("La personne cherchée a quitté le paquet : la manche s’arrête là.");
+  }, [pret, who, locale, secretLocal, statutLocal]);
+
+  /* ------------------ Le résultat part, une fois, à la fin ---------------- */
+
+  useEffect(() => {
+    if (!pret || !locale || locale.enregistree) return;
+    const issue = bilanManche(paquet, paquet.find((p) => p.id === locale.secretId) ?? null, locale.etapes);
+    if (issue.status === "en-cours") return;
+
+    const charge = chargeDeLaManche(locale);
+    setLocale((courante) =>
+      courante && courante.id === locale.id ? { ...courante, enregistree: true } : courante,
+    );
+
+    void (async () => {
+      try {
+        const reponse = await enregistrerManche(charge);
+        if (reponse.ok) router.refresh();
+        else empiler("qec", who, charge);
+      } catch {
+        empiler("qec", who, charge);
+      }
+    })();
+  }, [pret, who, locale, paquet, router]);
+
+  /* ------------------------- Quelle manche on affiche --------------------- */
+
+  const defiEnCours = defi?.status === "en-cours" ? defi : null;
+
+  /**
+   * La manche de cet appareil passe devant tout le reste, y compris finie :
+   * c'est ce qui laisse le temps de lire son récapitulatif. Elle ne s'efface que
+   * sur un geste — tirer au sort, ou relever le défi. Le défi, lui, attend
+   * pendant ce temps sans risquer de disparaître, et une bannière le rappelle.
+   */
+  const courante: { origine: Origine; vue: MancheVue } | null = vueLocale
+    ? { origine: "locale", vue: vueLocale }
+    : defiEnCours
+      ? { origine: "serveur", vue: defiEnCours }
+      : derniere
+        ? { origine: "serveur", vue: derniere }
+        : null;
+
+  const enJeu = courante && courante.vue.status === "en-cours" ? courante : null;
+  const restants = enJeu ? candidats(paquet, enJeu.vue.eliminated) : paquet;
+  const utiles = enJeu ? questionsUtiles(restants) : [];
 
   /**
    * Une seule région vivante, toujours montée : un lecteur d'écran n'annonce que
    * ce qui change dans une région déjà présente, jamais une région qui apparaît.
    */
   const statut = enJeu
-    ? annonce(enJeu, paquet)
-    : manche
-      ? manche.status === "gagnee"
-        ? `Manche gagnée en ${formuleQuestions(manche.questionsAsked)}.`
+    ? annonce(enJeu.vue, paquet)
+    : courante
+      ? courante.vue.status === "gagnee"
+        ? `Manche gagnée en ${formuleQuestions(courante.vue.questionsAsked)}.`
         : "Manche perdue."
       : "";
+
+  /* -------------------------------- Actions ------------------------------- */
 
   function agir(action: () => Promise<{ ok: boolean; erreur?: string }>, apres?: () => void) {
     setErreur(null);
@@ -88,141 +223,241 @@ export function QuiEstCe({
     });
   }
 
+  /** Le tirage au sort : rien ne quitte le navigateur, tout est immédiat. */
+  function lancerAuHasard() {
+    setErreur(null);
+    setAnnonceDefi(null);
+    setToutesLesQuestions(false);
+    const secret = tirerAuHasard(paquet);
+    if (!secret) {
+      setErreur("Le paquet est vide.");
+      return;
+    }
+    setLocale(nouvelleMancheLocale(secret.id));
+    // Le palmarès a pu bouger pendant qu'on jouait la manche précédente.
+    router.refresh();
+  }
+
+  function releverLeDefi() {
+    setErreur(null);
+    effacerMancheLocale(who);
+    setLocale(null);
+    setToutesLesQuestions(false);
+  }
+
+  function poser(q: Question) {
+    if (!enJeu) return;
+    if (enJeu.origine === "serveur") {
+      agir(() => poserQuestion(enJeu.vue.id, q.id));
+      return;
+    }
+    if (!secretLocal) return;
+    const reponse = q.test(secretLocal.traits);
+    const etape: Etape = {
+      type: "question",
+      questionId: q.id,
+      reponse,
+      elimines: aEcarter(restants, q, reponse).length,
+    };
+    setErreur(null);
+    setLocale((courante) =>
+      courante
+        ? { ...courante, etapes: [...courante.etapes, etape], majAt: new Date().toISOString() }
+        : courante,
+    );
+  }
+
+  function tenter(personne: PersonneVue) {
+    if (!enJeu) return;
+    if (enJeu.origine === "serveur") {
+      agir(() => tenterReponse(enJeu.vue.id, personne.id));
+      return;
+    }
+    const etape: Etape = {
+      type: "essai",
+      personneId: personne.id,
+      juste: personne.id === locale?.secretId,
+    };
+    setErreur(null);
+    setLocale((courante) =>
+      courante
+        ? { ...courante, etapes: [...courante.etapes, etape], majAt: new Date().toISOString() }
+        : courante,
+    );
+  }
+
+  /* -------------------------------- Rendu --------------------------------- */
+
+  const listeHistorique = historique.filter((manche) => manche.id !== courante?.vue.id).slice(0, 5);
+  const defiEnAttente = defiEnCours !== null && courante?.origine === "locale";
+
   return (
     <>
-
       <p
         aria-live="polite"
         aria-atomic="true"
-        className={cx(
-          "text-sm leading-snug text-ink-2",
-          enJeu ? "mt-5 min-h-6" : "sr-only",
-        )}
+        className={cx("text-sm leading-snug text-ink-2", enJeu ? "mt-5 min-h-6" : "sr-only")}
       >
         {statut}
       </p>
 
-      {enJeu ? (
-        <section className="mt-3 flex flex-col gap-4">
-          <Tableau manche={enJeu} restants={restants.length} />
-
-          <Plateau
-            paquet={paquet}
-            elimines={enJeu.eliminated}
-            fige={enCours}
-            onChoisir={(personne) => {
-              setErreur(null);
-              setCible(personne);
-            }}
-          />
-
-          <div>
-            <div className="flex flex-wrap items-baseline justify-between gap-2">
-              <h2 className="font-display text-heading text-ink">
-                {restants.length <= 1 ? "Plus qu’à le dire" : "Les questions qui séparent encore"}
-              </h2>
-              {utiles.length > QUESTIONS_VISIBLES ? (
-                <button
-                  type="button"
-                  onClick={() => setToutesLesQuestions((v) => !v)}
-                  className="min-h-11 text-[0.8125rem] font-bold text-accent-ink"
-                >
-                  {toutesLesQuestions ? "Voir moins" : `Les ${utiles.length} questions`}
-                </button>
-              ) : null}
-            </div>
-
-            {utiles.length === 0 ? (
-              <p className="mt-1 text-sm leading-relaxed text-ink-2">
-                {restants.length <= 1
-                  ? "Un seul visage tient encore debout. Clique dessus."
-                  : "Aucune question ne distingue plus ces visages : il faut tenter."}
-              </p>
-            ) : (
-              <ul className="mt-3 grid gap-2 sm:grid-cols-2">
-                {(toutesLesQuestions ? utiles : utiles.slice(0, QUESTIONS_VISIBLES)).map(
-                  ({ question: q, oui, non }) => (
-                    <li key={q.id}>
-                      <button
-                        type="button"
-                        disabled={enCours}
-                        onClick={() => agir(() => poserQuestion(enJeu.id, q.id))}
-                        className={cx(
-                          "flex min-h-11 w-full items-center justify-between gap-3 rounded-sm border border-line bg-surface px-4 py-2.5 text-left",
-                          "shadow-[var(--shadow-sm)] transition-[border-color,background-color,transform] duration-150",
-                          "hover:border-accent hover:bg-accent-soft/40 active:translate-y-px",
-                          "disabled:pointer-events-none disabled:opacity-50",
-                        )}
-                      >
-                        <span className="text-sm font-semibold text-ink">{q.libelle}</span>
-                        <span className="tabular shrink-0 text-[0.6875rem] text-ink-3">
-                          {oui} / {non}
-                        </span>
-                      </button>
-                    </li>
-                  ),
-                )}
-              </ul>
-            )}
-
-            <p className="mt-3 text-xs leading-snug text-ink-3">
-              Les deux nombres disent combien de visages répondraient oui, puis non. Une erreur
-              ajoute {PENALITE_ERREUR} questions au compteur&nbsp;; à la {ERREURS_MAX}
-              <sup>e</sup>, la manche est perdue.
-            </p>
-          </div>
-
-          <div className="flex flex-wrap items-center justify-center gap-2">
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              disabled={enCours}
-              onClick={() => agir(() => lancerManche("hasard"))}
-            >
-              Abandonner et retirer au sort
-            </Button>
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              disabled={enCours || autreEnCours || !assezDeMonde}
-              onClick={() => {
-                setErreur(null);
-                setDefiOuvert(true);
-              }}
-            >
-              Défier {whoLabel(autre)} de son côté
-            </Button>
-          </div>
-
-          {annonceDefi ? (
-            <p
-              aria-live="polite"
-              className="rounded-sm bg-accent-soft px-3.5 py-3 text-center text-sm font-semibold text-accent-ink"
-            >
-              {annonceDefi}
-            </p>
-          ) : null}
-        </section>
+      {!pret ? (
+        // Le temps de lire le stockage : une hauteur réservée, pour que
+        // l'arrivée de la manche ne fasse pas sauter la page.
+        <p
+          className="mt-5 flex min-h-32 items-center justify-center text-sm text-ink-3"
+          aria-busy="true"
+        >
+          Un instant…
+        </p>
       ) : (
-        <section className="mt-5 flex flex-col gap-5">
-          {manche ? <Recapitulatif manche={manche} paquet={paquet} /> : null}
+        <>
+          {defiEnAttente ? (
+            <Card className="mt-4 flex flex-wrap items-center justify-between gap-3 px-4 py-3.5">
+              <p className="text-sm text-ink-2">
+                <span className="font-semibold text-ink">{whoLabel(autre)}</span> t’a lancé un défi.
+                Il attend son heure&nbsp;: le relever maintenant laisse tomber cette manche-ci.
+              </p>
+              <Button variant="soft" size="sm" className="min-h-11" onClick={releverLeDefi}>
+                Le relever
+              </Button>
+            </Card>
+          ) : null}
 
-          <Lancement
-            autre={autre}
-            assezDeMonde={assezDeMonde}
-            manquants={Math.max(0, 4 - paquet.length)}
-            autreEnCours={autreEnCours}
-            enCours={enCours}
-            message={annonceDefi}
-            onHasard={() => agir(() => lancerManche("hasard"))}
-            onDefi={() => {
-              setErreur(null);
-              setDefiOuvert(true);
-            }}
-          />
-        </section>
+          {enJeu ? (
+            <section className="mt-3 flex flex-col gap-4">
+              <Tableau manche={enJeu.vue} restants={restants.length} />
+
+              <Plateau
+                paquet={paquet}
+                elimines={enJeu.vue.eliminated}
+                fige={enCours}
+                onChoisir={(personne) => {
+                  setErreur(null);
+                  setCible(personne);
+                }}
+              />
+
+              <div>
+                <div className="flex flex-wrap items-baseline justify-between gap-2">
+                  <h2 className="font-display text-heading text-ink">
+                    {restants.length <= 1 ? "Plus qu’à le dire" : "Les questions qui séparent encore"}
+                  </h2>
+                  {utiles.length > QUESTIONS_VISIBLES ? (
+                    <button
+                      type="button"
+                      onClick={() => setToutesLesQuestions((v) => !v)}
+                      className="min-h-11 text-[0.8125rem] font-bold text-accent-ink"
+                    >
+                      {toutesLesQuestions ? "Voir moins" : `Les ${utiles.length} questions`}
+                    </button>
+                  ) : null}
+                </div>
+
+                {utiles.length === 0 ? (
+                  <p className="mt-1 text-sm leading-relaxed text-ink-2">
+                    {restants.length <= 1
+                      ? "Un seul visage tient encore debout. Clique dessus."
+                      : "Aucune question ne distingue plus ces visages : il faut tenter."}
+                  </p>
+                ) : (
+                  <ul className="mt-3 grid gap-2 sm:grid-cols-2">
+                    {(toutesLesQuestions ? utiles : utiles.slice(0, QUESTIONS_VISIBLES)).map(
+                      ({ question: q, oui, non }) => (
+                        <li key={q.id}>
+                          <button
+                            type="button"
+                            disabled={enCours}
+                            onClick={() => poser(q)}
+                            className={cx(
+                              "flex min-h-11 w-full items-center justify-between gap-3 rounded-sm border border-line bg-surface px-4 py-2.5 text-left",
+                              "shadow-[var(--shadow-sm)] transition-[border-color,background-color,transform] duration-150",
+                              "hover:border-accent hover:bg-accent-soft/40 active:translate-y-px",
+                              "disabled:pointer-events-none disabled:opacity-50",
+                            )}
+                          >
+                            <span className="text-sm font-semibold text-ink">{q.libelle}</span>
+                            <span className="tabular shrink-0 text-[0.6875rem] text-ink-3">
+                              {oui} / {non}
+                            </span>
+                          </button>
+                        </li>
+                      ),
+                    )}
+                  </ul>
+                )}
+
+                <p className="mt-3 text-xs leading-snug text-ink-3">
+                  Les deux nombres disent combien de visages répondraient oui, puis non. Une erreur
+                  ajoute {PENALITE_ERREUR} questions au compteur&nbsp;; à la {ERREURS_MAX}
+                  <sup>e</sup>, la manche est perdue.
+                  {enJeu.origine === "serveur" ? (
+                    <>
+                      {" "}
+                      Sur un défi, c’est la plateforme qui répond&nbsp;: ces questions ont besoin d’une
+                      connexion, sans quoi le secret serait dans la page.
+                    </>
+                  ) : null}
+                </p>
+              </div>
+
+              <div className="flex flex-wrap items-center justify-center gap-2">
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="min-h-11"
+                  disabled={!assezDeMonde}
+                  onClick={lancerAuHasard}
+                >
+                  {enJeu.origine === "serveur"
+                    ? "Laisser le défi et retirer au sort"
+                    : "Abandonner et retirer au sort"}
+                </Button>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="min-h-11"
+                  disabled={enCours || autreEnCours || !assezDeMonde}
+                  onClick={() => {
+                    setErreur(null);
+                    setDefiOuvert(true);
+                  }}
+                >
+                  Défier {whoLabel(autre)} de son côté
+                </Button>
+              </div>
+
+              {annonceDefi ? (
+                <p
+                  aria-live="polite"
+                  className="rounded-sm bg-accent-soft px-3.5 py-3 text-center text-sm font-semibold text-accent-ink"
+                >
+                  {annonceDefi}
+                </p>
+              ) : null}
+            </section>
+          ) : (
+            <section className="mt-5 flex flex-col gap-5">
+              {courante ? <Recapitulatif manche={courante.vue} paquet={paquet} /> : null}
+
+              <Lancement
+                autre={autre}
+                assezDeMonde={assezDeMonde}
+                manquants={Math.max(0, 4 - paquet.length)}
+                autreEnCours={autreEnCours}
+                enCours={enCours}
+                message={annonceDefi}
+                onHasard={lancerAuHasard}
+                onDefi={() => {
+                  setErreur(null);
+                  setDefiOuvert(true);
+                }}
+              />
+            </section>
+          )}
+        </>
       )}
 
       {erreur ? (
@@ -231,14 +466,14 @@ export function QuiEstCe({
         </p>
       ) : null}
 
-      <Palmares scores={scores} historique={historique} paquet={paquet} />
+      <Palmares scores={scores} historique={listeHistorique} paquet={paquet} />
 
       {/* Confirmation d'un essai : deux questions de pénalité, ça se demande. */}
       {cible ? (
         <Sheet
           open
           onClose={() => setCible(null)}
-          title={`C’est ${cible.name} ?`}
+          title={`C’est ${cible.name} ?`}
           description={`Une erreur coûte ${PENALITE_ERREUR} questions et rapproche de la fin de manche.`}
           footer={
             <div className="flex justify-end gap-2">
@@ -251,7 +486,7 @@ export function QuiEstCe({
                 onClick={() => {
                   const choisi = cible;
                   setCible(null);
-                  if (enJeu) agir(() => tenterReponse(enJeu.id, choisi.id));
+                  tenter(choisi);
                 }}
               >
                 {enCours ? <Spinner /> : "Oui, c’est elle ou lui"}
@@ -290,7 +525,7 @@ export function QuiEstCe({
                 aria-label={`Faire chercher ${personne.name}`}
                 onClick={() =>
                   agir(
-                    () => lancerManche("defi", personne.id),
+                    () => lancerDefi(personne.id),
                     () => {
                       setDefiOuvert(false);
                       setAnnonceDefi(`Défi envoyé à ${whoLabel(autre)}. À toi de ne rien dire.`);
@@ -485,20 +720,22 @@ function Lancement({
       <div className="mt-3 grid gap-3 sm:grid-cols-2">
         <Option
           titre="Au hasard"
-          detail="La plateforme tire un visage du paquet, à toi de le retrouver. Personne ne connaît la réponse."
+          detail="Le navigateur tire un visage du paquet, à toi de le retrouver. Personne ne connaît la réponse."
           appel="Tirer au sort"
-          disabled={!assezDeMonde || enCours}
-          enCours={enCours}
+          reseau={false}
+          disabled={!assezDeMonde}
+          enCours={false}
           onClick={onHasard}
         />
         <Option
           titre="En défi"
           detail={
             autreEnCours
-              ? `${whoLabel(autre)} a déjà une manche en cours : impossible d’en lancer une seconde.`
+              ? `${whoLabel(autre)} a déjà un défi en attente : impossible d’en lancer un second.`
               : `Tu choisis secrètement qui ${whoLabel(autre)} devra trouver.`
           }
           appel={`Choisir pour ${whoLabel(autre)}`}
+          reseau
           disabled={!assezDeMonde || autreEnCours || enCours}
           enCours={false}
           onClick={onDefi}
@@ -521,6 +758,7 @@ function Option({
   titre,
   detail,
   appel,
+  reseau,
   disabled,
   enCours,
   onClick,
@@ -528,6 +766,7 @@ function Option({
   titre: string;
   detail: string;
   appel: string;
+  reseau: boolean;
   disabled: boolean;
   enCours: boolean;
   onClick: () => void;
@@ -538,7 +777,7 @@ function Option({
       disabled={disabled}
       onClick={onClick}
       className={cx(
-        "flex min-h-[7.5rem] flex-col items-start gap-1.5 rounded-lg border border-line bg-surface p-4 text-left",
+        "flex min-h-[8.5rem] flex-col items-start gap-1.5 rounded-lg border border-line bg-surface p-4 text-left",
         "shadow-[var(--shadow-sm)] transition-[border-color,background-color,transform] duration-150",
         "hover:border-accent hover:bg-accent-soft/40 active:translate-y-px",
         "disabled:pointer-events-none disabled:opacity-50",
@@ -546,6 +785,18 @@ function Option({
     >
       <span className="font-display text-heading text-ink">{titre}</span>
       <span className="text-[0.8125rem] leading-snug text-ink-3">{detail}</span>
+      <span
+        className={cx(
+          "mt-1 inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[0.6875rem] font-semibold",
+          reseau ? "bg-surface-2 text-ink-2" : "bg-accent-soft text-accent-ink",
+        )}
+      >
+        <span
+          aria-hidden="true"
+          className={cx("size-1.5 rounded-full", reseau ? "bg-line-strong" : "bg-accent")}
+        />
+        {reseau ? "Demande une connexion" : "Marche sans connexion"}
+      </span>
       <span className="mt-auto flex items-center gap-2 pt-2 text-xs font-bold text-accent-ink">
         {enCours ? <Spinner /> : `${appel} →`}
       </span>

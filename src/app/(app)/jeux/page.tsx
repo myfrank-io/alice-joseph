@@ -13,6 +13,7 @@ import {
   IllustrationPuissance4,
   IllustrationQuiEstCe,
 } from "@/components/jeux/illustrations";
+import { AppelJeu, EtatJeu } from "@/components/jeux/reprise-locale";
 import { formatAgo, plural, whoLabel } from "@/lib/format";
 
 /**
@@ -21,6 +22,11 @@ import { formatAgo, plural, whoLabel } from "@/lib/format";
  * Deux cartes, deux jeux, et pour chacune l'état vivant : ce qui attend d'être
  * repris, ce qui vient de finir, et le compte des deux. Rien n'y est décoratif —
  * la carte doit répondre à « on en était où ? » sans qu'on ait à l'ouvrir.
+ *
+ * Ce que la page calcule ici ne couvre plus que ce qui vit sur le serveur : une
+ * partie sur le même téléphone ou contre l'ordinateur n'existe que dans le
+ * navigateur. `EtatJeu` et `AppelJeu` reprennent donc la main après le montage
+ * pour dire ce qui attend vraiment sur l'appareil.
  */
 
 /** Une partie de puissance 4 concerne les deux, sauf un solo commencé par l'autre. */
@@ -28,19 +34,9 @@ function concerne(partie: Connect4Game, who: Who): boolean {
   return partie.state.mode !== "solo" || partie.startedBy === who;
 }
 
-function auTour(who: Who): string {
-  return who === "alice" ? "Au tour d’Alice" : "Au tour de Joseph";
-}
-
 function tourP4(partie: Connect4Game, who: Who): string {
   const { state } = partie;
-  if (state.mode === "solo") {
-    return state.turn === state.botSide ? "L’ordinateur réfléchit" : "À toi de jouer";
-  }
-  if (state.mode === "distance") {
-    return state.turn === who ? "À toi de jouer" : `On attend ${whoLabel(state.turn)}`;
-  }
-  return auTour(state.turn);
+  return state.turn === who ? "À toi de jouer" : `On attend ${whoLabel(state.turn)}`;
 }
 
 function resultatP4(partie: Connect4Game): string {
@@ -64,8 +60,11 @@ export default async function JeuxPage() {
   /* ------------------------------ Puissance 4 ----------------------------- */
 
   const miennes = parties.filter((partie) => concerne(partie, who));
-  const p4EnCours = miennes.find((partie) => partie.status === "en-cours") ?? null;
-  const p4Derniere = parties.find((partie) => partie.status === "terminee") ?? null;
+  // Seul « chacun de son côté » attend encore ici ; le reste dort dans le navigateur.
+  const p4EnCours =
+    miennes.find((partie) => partie.status === "en-cours" && partie.state.mode === "distance") ??
+    null;
+  const p4Derniere = miennes.find((partie) => partie.status === "terminee") ?? null;
   const duels = scoreDuels(parties);
 
   /* ------------------------------ Qui est-ce ------------------------------ */
@@ -94,13 +93,29 @@ export default async function JeuxPage() {
           pitch="Sept colonnes, six lignes, quatre jetons alignés. Sur le même téléphone, chacun de son côté, ou contre l’ordinateur."
           illustration={<IllustrationPuissance4 className="h-full w-full" />}
           etat={
-            p4EnCours
-              ? { vif: true, texte: `Partie en cours · ${tourP4(p4EnCours, who)}` }
-              : p4Derniere
-                ? { vif: false, texte: `${resultatP4(p4Derniere)} · ${formatAgo(p4Derniere.updatedAt)}` }
-                : { vif: false, texte: "Aucune partie pour l’instant" }
+            <EtatJeu
+              jeu="puissance4"
+              who={who}
+              defaut={
+                p4EnCours
+                  ? { vif: true, texte: `Partie en cours · ${tourP4(p4EnCours, who)}` }
+                  : p4Derniere
+                    ? {
+                        vif: false,
+                        texte: `${resultatP4(p4Derniere)} · ${formatAgo(p4Derniere.updatedAt)}`,
+                      }
+                    : { vif: false, texte: "Aucune partie pour l’instant" }
+              }
+            />
           }
-          appel={p4EnCours ? "Reprendre la partie" : "Commencer une partie"}
+          appel={
+            <AppelJeu
+              jeu="puissance4"
+              who={who}
+              serveurVif={p4EnCours !== null}
+              defaut={p4EnCours ? "Reprendre la partie" : "Commencer une partie"}
+            />
+          }
         >
           <ScoreDuo
             alice={duels.alice}
@@ -121,32 +136,45 @@ export default async function JeuxPage() {
           pitch="Un visage à trouver parmi ceux qu’on connaît. On pose des questions, la plateforme répond, les autres s’écartent."
           illustration={<IllustrationQuiEstCe className="h-full w-full" />}
           etat={
-            qecEnCours
-              ? {
-                  vif: true,
-                  texte: `Manche en cours · ${qecRestants} ${plural(
-                    qecRestants,
-                    "visage",
-                    "visages",
-                  )} encore en lice`,
-                }
-              : qecAutre
-                ? { vif: true, texte: `${whoLabel(qecAutre.player)} cherche encore` }
-                : qecDerniere
+            <EtatJeu
+              jeu="qui-est-ce"
+              who={who}
+              defaut={
+                qecEnCours
                   ? {
-                      vif: false,
-                      texte: `${
-                        qecDerniere.status === "gagnee"
-                          ? `${whoLabel(qecDerniere.player)} a trouvé en ${formuleQuestions(qecDerniere.questionsAsked)}`
-                          : `Manche perdue par ${whoLabel(qecDerniere.player)}`
-                      } · ${formatAgo(qecDerniere.updatedAt)}`,
+                      vif: true,
+                      texte: `Défi en attente · ${qecRestants} ${plural(
+                        qecRestants,
+                        "visage",
+                        "visages",
+                      )} encore en lice`,
                     }
-                  : {
-                      vif: false,
-                      texte: `${paquet.length} ${plural(paquet.length, "visage", "visages")} dans le paquet`,
-                    }
+                  : qecAutre
+                    ? { vif: true, texte: `${whoLabel(qecAutre.player)} cherche encore` }
+                    : qecDerniere
+                      ? {
+                          vif: false,
+                          texte: `${
+                            qecDerniere.status === "gagnee"
+                              ? `${whoLabel(qecDerniere.player)} a trouvé en ${formuleQuestions(qecDerniere.questionsAsked)}`
+                              : `Manche perdue par ${whoLabel(qecDerniere.player)}`
+                          } · ${formatAgo(qecDerniere.updatedAt)}`,
+                        }
+                      : {
+                          vif: false,
+                          texte: `${paquet.length} ${plural(paquet.length, "visage", "visages")} dans le paquet`,
+                        }
+              }
+            />
           }
-          appel={qecEnCours ? "Reprendre la manche" : "Lancer une manche"}
+          appel={
+            <AppelJeu
+              jeu="qui-est-ce"
+              who={who}
+              serveurVif={qecEnCours !== null}
+              defaut={qecEnCours ? "Relever le défi" : "Lancer une manche"}
+            />
+          }
         >
           <ScoreDuo
             alice={scoreAlice.gagnees}
@@ -191,8 +219,9 @@ function CarteJeu({
   titre: ReactNode;
   pitch: string;
   illustration: ReactNode;
-  etat: { vif: boolean; texte: string };
-  appel: string;
+  /** L'état vivant : rendu par un composant client, qui peut le corriger après le montage. */
+  etat: ReactNode;
+  appel: ReactNode;
   children: ReactNode;
 }) {
   return (
@@ -216,16 +245,7 @@ function CarteJeu({
           <p className="mt-1.5 text-sm leading-relaxed text-ink-2">{pitch}</p>
         </div>
 
-        <p className="flex items-center gap-2 text-[0.8125rem] font-semibold text-ink">
-          <span
-            aria-hidden="true"
-            className={cx(
-              "size-2 shrink-0 rounded-full",
-              etat.vif ? "bg-accent" : "bg-line-strong",
-            )}
-          />
-          {etat.texte}
-        </p>
+        {etat}
 
         <div className="mt-auto flex flex-wrap items-end justify-between gap-3 border-t border-line pt-3.5">
           {children}

@@ -14,26 +14,32 @@ import type {
   Who,
   WhoOrBoth,
 } from "@/lib/types";
-import { autreQue, etatDepuisCoups, jouer, meilleurCoup } from "@/lib/jeux/puissance4";
+import { autreQue, etatDepuisCoups, jouer, type Coup } from "@/lib/jeux/puissance4";
 import { estPuissance4, estQuiEstCe } from "@/lib/jeux/parties";
 import {
   ERREURS_MAX,
   PENALITE_ERREUR,
   aEcarter,
+  bilanManche,
   candidats,
   erreursDe,
   question,
   type Etape,
   type QuiEstCeManche,
 } from "@/lib/jeux/qui-est-ce";
-import type { EtatFormulaire, Reponse } from "@/lib/jeux/types";
+import type { ChargeManche, ChargePartie, EtatFormulaire, Reponse } from "@/lib/jeux/types";
 
 /**
  * Toutes les mutations des deux jeux.
  *
  * Deux principes, sans exception : l'identité vient de `requireWho()` et jamais
- * du client, et l'état de jeu est recalculé ici à partir de l'historique rangé
- * en base. Un navigateur ne peut donc rien affirmer, seulement demander.
+ * du client, et l'état de jeu est recalculé ici à partir de l'historique reçu ou
+ * rangé en base. Un navigateur ne peut donc rien affirmer, seulement demander.
+ *
+ * Depuis que les jeux se jouent hors ligne, ce fichier n'est plus sollicité coup
+ * par coup. Il ne reste ici que ce qui a une vraie raison d'être partagé :
+ * le mode « chacun de son côté », le défi du « qui est-ce ? », le paquet, et
+ * l'enregistrement d'un résultat une fois la partie finie.
  */
 
 const CHEMIN_HALL = "/jeux";
@@ -46,6 +52,21 @@ function echec(erreur: string): Reponse {
 
 function texte(valeur: FormDataEntryValue | null, max: number): string {
   return typeof valeur === "string" ? valeur.trim().slice(0, max) : "";
+}
+
+/** Les identifiants fabriqués par le navigateur : rien d'autre que du sobre. */
+function litIdentifiant(valeur: unknown): string | null {
+  return typeof valeur === "string" && /^[A-Za-z0-9_-]{6,64}$/.test(valeur) ? valeur : null;
+}
+
+function estWho(valeur: unknown): valeur is Who {
+  return valeur === "alice" || valeur === "joseph";
+}
+
+function objet(valeur: unknown): Record<string, unknown> | null {
+  return valeur && typeof valeur === "object" && !Array.isArray(valeur)
+    ? (valeur as Record<string, unknown>)
+    : null;
 }
 
 /* ========================================================================== */
@@ -71,25 +92,111 @@ function revaliderP4() {
   revalidatePath(CHEMIN_HALL);
 }
 
+/**
+ * Ouvre une partie « chacun de son côté ».
+ *
+ * C'est le seul mode qui a besoin d'un endroit commun pour attendre : les deux
+ * autres se jouent entièrement dans le navigateur et ne reviennent ici qu'une
+ * fois finis, par `enregistrerPartie`.
+ */
 export async function creerPartie(mode: unknown): Promise<Reponse> {
   const who = await requireWho();
 
-  if (mode !== "local" && mode !== "distance" && mode !== "solo") {
-    return echec("Mode de jeu inconnu.");
-  }
+  if (mode !== "distance") return echec("Ce mode se joue sans le serveur.");
 
-  const botSide = mode === "solo" ? autreQue(who) : undefined;
   const partie = await insert<Connect4Game>("games", {
     kind: "puissance4",
     startedBy: who,
     status: "en-cours",
-    state: etatDepuisCoups([], { premier: who, mode, botSide }),
+    state: etatDepuisCoups([], { premier: who, mode }),
   });
 
   revaliderP4();
   return { ok: true, id: partie.id };
 }
 
+/* --------------------- Une partie jouée hors du serveur ------------------- */
+
+function litChargePartie(brut: unknown, who: Who): ChargePartie | null {
+  const charge = objet(brut);
+  if (!charge) return null;
+
+  const id = litIdentifiant(charge.id);
+  if (!id) return null;
+  if (charge.mode !== "local" && charge.mode !== "solo") return null;
+  if (!estWho(charge.premier)) return null;
+
+  // En solo, la machine tient forcément le camp d'en face : sans quoi le bilan
+  // personnel de `scoreSolo` compterait des victoires qui n'existent pas.
+  const botSide = charge.mode === "solo" ? autreQue(who) : undefined;
+  if (charge.mode === "solo" && charge.botSide !== botSide) return null;
+
+  if (!Array.isArray(charge.coups)) return null;
+  const coups: Coup[] = [];
+  for (const entree of charge.coups.slice(0, 42)) {
+    const coup = objet(entree);
+    if (!coup) return null;
+    if (!estWho(coup.by)) return null;
+    if (typeof coup.column !== "number" || !Number.isInteger(coup.column)) return null;
+    if (coup.column < 0 || coup.column > 6) return null;
+    coups.push({ by: coup.by, column: coup.column, at: new Date().toISOString() });
+  }
+
+  return { id, mode: charge.mode, premier: charge.premier, ...(botSide ? { botSide } : {}), coups };
+}
+
+/**
+ * Range le résultat d'une partie jouée dans le navigateur.
+ *
+ * Appelée une seule fois, à la fin — et jamais pendant. Le serveur rejoue la
+ * liste des coups avec `etatDepuisCoups` : une grille bricolée n'a donc aucune
+ * prise, seul un historique cohérent produit un résultat.
+ *
+ * L'identifiant vient du navigateur exprès : un résultat mis en file d'attente
+ * parce que le réseau manquait peut être renvoyé sans risque de doublon.
+ */
+export async function enregistrerPartie(brut: unknown): Promise<Reponse> {
+  const who = await requireWho();
+
+  const charge = litChargePartie(brut, who);
+  if (!charge) return echec("Partie illisible.");
+
+  const dejaRangee = await get<Doc>("games", charge.id);
+  if (dejaRangee) return { ok: true, id: charge.id };
+
+  const state = etatDepuisCoups(charge.coups, {
+    premier: charge.premier,
+    mode: charge.mode,
+    botSide: charge.botSide,
+  });
+  if (state.moves.length === 0) return echec("Partie sans le moindre coup.");
+
+  try {
+    await insert<Connect4Game>("games", {
+      id: charge.id,
+      kind: "puissance4",
+      startedBy: who,
+      status: "terminee",
+      state,
+    });
+  } catch {
+    // Deux onglets ont pu l'envoyer en même temps : c'est rangé, tout va bien.
+    const arrivee = await get<Doc>("games", charge.id);
+    if (!arrivee) return echec("L’enregistrement n’a pas abouti.");
+  }
+
+  // Pas de revalidation ici, volontairement : l'écran de fin est encore affiché,
+  // et voir la partie apparaître au même instant dans « dernières parties » la
+  // ferait lire en double. Le plateau rafraîchit la page quand on le quitte.
+  return { ok: true, id: charge.id };
+}
+
+/**
+ * Un coup en mode « chacun de son côté ».
+ *
+ * Le seul coup qui passe encore par le réseau, et pour cause : il doit atterrir
+ * sur l'autre téléphone. Les deux autres modes ne viennent jamais ici.
+ */
 export async function jouerCoup(id: unknown, colonne: unknown): Promise<Reponse> {
   const who = await requireWho();
 
@@ -101,30 +208,11 @@ export async function jouerCoup(id: unknown, colonne: unknown): Promise<Reponse>
   }
 
   const etat = rejouer(partie);
-  const mode = etat.mode;
+  if (etat.mode !== "distance") return echec("Cette partie se joue sans le serveur.");
+  if (etat.turn !== who) return echec("Ce n’est pas ton tour.");
 
-  // Qui pose le jeton, et a-t-il le droit ?
-  let acteur: Who;
-  if (mode === "local") {
-    // Un seul appareil : c'est le tour affiché qui joue, pas la session.
-    acteur = etat.turn;
-  } else if (mode === "distance") {
-    if (etat.turn !== who) return echec("Ce n’est pas ton tour.");
-    acteur = who;
-  } else {
-    if (partie.startedBy !== who) return echec("Cette partie n’est pas la tienne.");
-    if (etat.turn === etat.botSide) return echec("L’ordinateur n’a pas encore joué.");
-    acteur = who;
-  }
-
-  let apres = jouer(etat, colonne, acteur);
+  const apres = jouer(etat, colonne, who);
   if (!apres) return echec("Coup impossible.");
-
-  // L'ordinateur répond dans la foulée : un seul aller-retour pour le joueur.
-  if (mode === "solo" && apres.botSide && !apres.winner && !apres.draw) {
-    const reponse = meilleurCoup(apres);
-    if (reponse !== null) apres = jouer(apres, reponse, apres.botSide) ?? apres;
-  }
 
   await update<Connect4Game>("games", partie.id, {
     state: apres,
@@ -135,61 +223,16 @@ export async function jouerCoup(id: unknown, colonne: unknown): Promise<Reponse>
   return { ok: true };
 }
 
-export async function annulerCoup(id: unknown): Promise<Reponse> {
-  const who = await requireWho();
-
-  const partie = await chargerPartie(id);
-  if (!partie) return echec("Partie introuvable.");
-  if (partie.status !== "en-cours") return echec("La partie est terminée.");
-
-  const etat = rejouer(partie);
-  if (etat.mode === "distance") {
-    return echec("À distance, un coup joué ne se reprend pas.");
-  }
-  if (etat.mode === "solo" && partie.startedBy !== who) {
-    return echec("Cette partie n’est pas la tienne.");
-  }
-
-  const coups = [...etat.moves];
-  if (coups.length === 0) return echec("Aucun coup à annuler.");
-
-  if (etat.mode === "solo") {
-    // On retire la réponse de l'ordinateur avec notre propre coup, sinon
-    // annuler reviendrait à lui offrir un tour gratuit.
-    if (coups[coups.length - 1].by === etat.botSide) coups.pop();
-    if (coups.length > 0 && coups[coups.length - 1].by !== etat.botSide) coups.pop();
-  } else {
-    coups.pop();
-  }
-
-  await update<Connect4Game>("games", partie.id, {
-    state: etatDepuisCoups(coups, {
-      premier: partie.startedBy,
-      mode: etat.mode,
-      botSide: etat.botSide,
-    }),
-    status: "en-cours",
-  });
-
-  revaliderP4();
-  return { ok: true };
-}
-
 export async function abandonner(id: unknown): Promise<Reponse> {
-  const who = await requireWho();
+  await requireWho();
 
   const partie = await chargerPartie(id);
   if (!partie) return echec("Partie introuvable.");
   if (partie.status !== "en-cours") return echec("La partie est déjà terminée.");
 
-  const etat = rejouer(partie);
-  if (etat.mode === "solo" && partie.startedBy !== who) {
-    return echec("Cette partie n’est pas la tienne.");
-  }
-
   // Une partie abandonnée se ferme sans vainqueur : personne ne gagne un point
   // parce que l'autre a fermé l'onglet.
-  await update<Connect4Game>("games", partie.id, { state: etat, status: "terminee" });
+  await update<Connect4Game>("games", partie.id, { state: rejouer(partie), status: "terminee" });
 
   revaliderP4();
   return { ok: true };
@@ -326,41 +369,40 @@ async function chargerManche(id: unknown): Promise<QuiEstCeManche | null> {
   return doc && estQuiEstCe(doc) ? doc : null;
 }
 
-export async function lancerManche(facon: unknown, personneId?: unknown): Promise<Reponse> {
+/**
+ * Le défi : on choisit pour l'autre, et le secret reste ici.
+ *
+ * C'est la seule manche qui vit encore sur le serveur, et c'est irréductible.
+ * Une manche tirée au sort se joue entièrement dans le navigateur — le joueur
+ * connaît déjà la réponse, la lui cacher n'aurait aucun sens — mais un défi,
+ * lui, doit rester ignoré de celui qui cherche. Descendre le secret, même
+ * chiffré, même caché, reviendrait à le mettre à deux clics de l'inspecteur.
+ */
+export async function lancerDefi(personneId: unknown): Promise<Reponse> {
   const who = await requireWho();
-
-  if (facon !== "hasard" && facon !== "defi") return echec("Lancement inconnu.");
 
   const paquet = await list<Person>("people");
   if (paquet.length < 4) return echec("Il faut au moins quatre personnes dans le paquet.");
 
-  const joueur = facon === "defi" ? autreQue(who) : who;
+  const joueur = autreQue(who);
 
   const parties = await list<Doc>("games");
   const enCours = parties.filter(
     (doc): doc is QuiEstCeManche =>
       estQuiEstCe(doc) && doc.status === "en-cours" && doc.player === joueur,
   );
-
-  if (facon === "defi" && enCours.length > 0) {
-    return echec(`${joueur === "alice" ? "Alice" : "Joseph"} a déjà une manche en cours.`);
+  if (enCours.length > 0) {
+    return echec(`${joueur === "alice" ? "Alice" : "Joseph"} a déjà un défi en attente.`);
   }
-  // On ne repart de zéro que sur ses propres manches.
-  for (const ancienne of enCours) await remove("games", ancienne.id);
 
-  let secret: Person | undefined;
-  if (facon === "defi") {
-    if (typeof personneId !== "string") return echec("Choisis quelqu’un.");
-    secret = paquet.find((p) => p.id === personneId);
-    if (!secret) return echec("Cette personne n’est plus dans le paquet.");
-  } else {
-    secret = paquet[Math.floor(Math.random() * paquet.length)];
-  }
+  if (typeof personneId !== "string") return echec("Choisis quelqu’un.");
+  const secret = paquet.find((p) => p.id === personneId);
+  if (!secret) return echec("Cette personne n’est plus dans le paquet.");
 
   const manche = await insert<QuiEstCeManche>("games", {
     kind: "qui-est-ce",
     player: joueur,
-    setBy: facon === "defi" ? who : "hasard",
+    setBy: who,
     secretPersonId: secret.id,
     questionsAsked: 0,
     status: "en-cours",
@@ -372,6 +414,88 @@ export async function lancerManche(facon: unknown, personneId?: unknown): Promis
   return { ok: true, id: manche.id };
 }
 
+/* -------------------- Une manche jouée hors du serveur -------------------- */
+
+function litChargeManche(brut: unknown): ChargeManche | null {
+  const charge = objet(brut);
+  if (!charge) return null;
+
+  const id = litIdentifiant(charge.id);
+  if (!id) return null;
+  if (typeof charge.secretPersonId !== "string" || charge.secretPersonId.length > 64) return null;
+  if (!Array.isArray(charge.etapes)) return null;
+
+  const etapes: Etape[] = [];
+  for (const entree of charge.etapes.slice(0, 80)) {
+    const etape = objet(entree);
+    if (!etape) return null;
+    if (etape.type === "question") {
+      if (typeof etape.questionId !== "string" || !question(etape.questionId)) return null;
+      etapes.push({
+        type: "question",
+        questionId: etape.questionId,
+        reponse: etape.reponse === true,
+        elimines: 0,
+      });
+    } else if (etape.type === "essai") {
+      if (typeof etape.personneId !== "string" || etape.personneId.length > 64) return null;
+      etapes.push({ type: "essai", personneId: etape.personneId, juste: etape.juste === true });
+    } else {
+      return null;
+    }
+  }
+
+  return { id, secretPersonId: charge.secretPersonId, etapes };
+}
+
+/**
+ * Range une manche tirée au sort et jouée dans le navigateur.
+ *
+ * Rien n'est cru sur parole : `bilanManche` rejoue l'historique contre le paquet
+ * du moment et contre les attributs du secret. Le compteur, les éliminations et
+ * l'issue sont donc ceux du moteur, pas ceux du navigateur.
+ */
+export async function enregistrerManche(brut: unknown): Promise<Reponse> {
+  const who = await requireWho();
+
+  const charge = litChargeManche(brut);
+  if (!charge) return echec("Manche illisible.");
+
+  const dejaRangee = await get<Doc>("games", charge.id);
+  if (dejaRangee) return { ok: true, id: charge.id };
+
+  const paquet = await list<Person>("people");
+  const secret = paquet.find((p) => p.id === charge.secretPersonId) ?? null;
+  const bilan = bilanManche(paquet, secret, charge.etapes);
+  if (bilan.status === "en-cours") return echec("Cette manche n’est pas finie.");
+
+  try {
+    await insert<QuiEstCeManche>("games", {
+      id: charge.id,
+      kind: "qui-est-ce",
+      player: who,
+      setBy: "hasard",
+      secretPersonId: charge.secretPersonId,
+      questionsAsked: bilan.questionsAsked,
+      status: bilan.status,
+      eliminated: bilan.eliminated,
+      etapes: bilan.etapes,
+    });
+  } catch {
+    const arrivee = await get<Doc>("games", charge.id);
+    if (!arrivee) return echec("L’enregistrement n’a pas abouti.");
+  }
+
+  revaliderQec();
+  return { ok: true, id: charge.id };
+}
+
+/**
+ * Une question posée pendant un défi.
+ *
+ * Le seul aller-retour qui reste dans ce jeu, et le seul qui soit justifié : la
+ * réponse dépend d'un secret que le navigateur n'a pas le droit de connaître.
+ */
 export async function poserQuestion(mancheId: unknown, questionId: unknown): Promise<Reponse> {
   const who = await requireWho();
 

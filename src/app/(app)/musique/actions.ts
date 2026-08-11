@@ -4,13 +4,16 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { requireWho } from "@/lib/auth";
 import { detachReference, get, insert, list, remove, update } from "@/lib/data/store";
-import type { Playlist, Tint, Track } from "@/lib/types";
+import type { Playlist, Plateforme, Settings, Tint, Track } from "@/lib/types";
 import {
   analyserLien,
   estLienSur,
+  estPlateforme,
+  peutEtreResolu,
   recupererMetadonnees,
   type EtatFormulaire,
 } from "@/lib/musique";
+import { resoudreLiens } from "@/lib/odesli";
 
 /**
  * Écritures de l'app Musique. Chaque action vérifie l'identité avec
@@ -33,6 +36,13 @@ function champ(formData: FormData, nom: string, maximum: number): string {
 function teinte(formData: FormData): Tint {
   const valeur = formData.get("tint");
   return TEINTES.find((t) => t === valeur) ?? "musique";
+}
+
+/** Un tableau de liens vide ne vaut pas la peine d'être stocké. */
+function liensOuRien(
+  liens: Partial<Record<Plateforme, string>>,
+): Partial<Record<Plateforme, string>> | undefined {
+  return Object.keys(liens).length > 0 ? liens : undefined;
 }
 
 /** Les playlists cochées, réduites à celles qui existent vraiment. */
@@ -81,9 +91,17 @@ export async function ajouterMorceau(
     return { erreur: "Ce lien ne ressemble pas à une adresse web.", manuel: true, valeurs };
   }
 
-  const metadonnees = lien ? await recupererMetadonnees(lien.url) : null;
+  // Les deux appels réseau partent ensemble : l'oEmbed du service pour le titre
+  // et la pochette, Odesli pour le même morceau chez les autres services. Ni
+  // l'un ni l'autre ne peut empêcher l'enregistrement — au pire, ils se taisent.
+  const cible = lien?.url ?? lienBrut;
+  const [metadonnees, resolution] = await Promise.all([
+    lien ? recupererMetadonnees(lien.url) : null,
+    peutEtreResolu(cible) ? resoudreLiens(cible) : null,
+  ]);
+  const partout = resolution?.ok ? resolution : null;
 
-  const title = titreSaisi || metadonnees?.title || "";
+  const title = titreSaisi || metadonnees?.title || partout?.titre || "";
   if (!title) {
     return {
       erreur: lien
@@ -97,18 +115,90 @@ export async function ajouterMorceau(
   await insert<Track>("tracks", {
     provider: lien?.provider ?? "autre",
     providerId: lien?.providerId ?? "",
-    url: lien?.url ?? lienBrut,
+    url: cible,
     title,
-    artist: artisteSaisi || metadonnees?.artist || undefined,
-    artworkUrl: metadonnees?.artworkUrl,
+    artist: artisteSaisi || metadonnees?.artist || partout?.artiste || undefined,
+    artworkUrl: metadonnees?.artworkUrl ?? partout?.pochette,
     by: who,
     note: note || undefined,
     playlistIds: await playlistsChoisies(formData),
     loves: [],
+    liens: partout ? liensOuRien(partout.liens) : undefined,
+    pageUrl: partout?.pageUrl,
   });
 
   rafraichir();
   return { ok: true };
+}
+
+/**
+ * Retrouve chez tous les services le morceau désigné par son lien.
+ *
+ * Un seul appel à song.link, jamais automatique : soit à l'ajout du morceau,
+ * soit ici, quand quelqu'un le demande. Le mode silencieux sert au rattrapage
+ * par lots, qui rafraîchit la page une seule fois, à la fin.
+ */
+export async function retrouverLiens(
+  trackId: string,
+  silencieux = false,
+): Promise<{ ok: boolean; erreur?: string; trouves?: number; limite?: boolean }> {
+  await requireWho();
+
+  const morceau = trackId ? await get<Track>("tracks", trackId) : null;
+  if (!morceau) return { ok: false, erreur: "Ce morceau n’existe plus." };
+
+  if (!peutEtreResolu(morceau.url)) {
+    return {
+      ok: false,
+      erreur:
+        "Ce morceau n’a pas de lien à chercher. Ouvre-le chez toi, copie son adresse, puis colle-la dans « Modifier ».",
+    };
+  }
+
+  const resolution = await resoudreLiens(morceau.url);
+  if (!resolution.ok) {
+    return { ok: false, erreur: resolution.erreur, limite: resolution.limite };
+  }
+
+  await update<Track>("tracks", trackId, {
+    liens: liensOuRien(resolution.liens),
+    pageUrl: resolution.pageUrl,
+    artworkUrl: morceau.artworkUrl ?? resolution.pochette,
+    artist: morceau.artist ?? resolution.artiste,
+  });
+
+  if (!silencieux) rafraichir();
+  return { ok: true, trouves: Object.keys(resolution.liens).length };
+}
+
+/* ------------------------------ Ma plateforme ----------------------------- */
+
+/**
+ * Le service sur lequel on écoute. Chacun ne règle que le sien : l'identité
+ * vient du cookie de session, la valeur du client n'est qu'un choix de service.
+ */
+export async function choisirPlateforme(valeur: string): Promise<void> {
+  const who = await requireWho();
+  const plateforme = estPlateforme(valeur) ? valeur : undefined;
+
+  const patch: Partial<Settings> =
+    who === "alice" ? { alicePlateforme: plateforme } : { josephPlateforme: plateforme };
+
+  const existants = await list<Settings>("settings");
+  const reglages = existants[0];
+
+  if (reglages) {
+    await update<Settings>("settings", reglages.id, patch);
+  } else {
+    await insert<Settings>("settings", {
+      id: "settings",
+      aliceLabel: "Alice",
+      josephLabel: "Joseph",
+      ...patch,
+    });
+  }
+
+  rafraichir();
 }
 
 export async function modifierMorceau(
@@ -134,12 +224,16 @@ export async function modifierMorceau(
 
   const lien = lienBrut ? analyserLien(lienBrut) : null;
   const url = lien?.url ?? lienBrut;
+  const aChangeDeLien = url !== actuel.url;
 
-  // On ne retente les métadonnées que si le lien a bougé et qu'il manque une pochette.
-  const metadonnees =
-    lien && url !== actuel.url && !actuel.artworkUrl
-      ? await recupererMetadonnees(lien.url)
-      : null;
+  // On ne retente les métadonnées que si le lien a bougé et qu'il manque une
+  // pochette. Un nouveau lien, en revanche, désigne peut-être un autre morceau :
+  // les liens gardés pour l'autre plateforme ne valent plus rien, on refait le tour.
+  const [metadonnees, resolution] = await Promise.all([
+    lien && aChangeDeLien && !actuel.artworkUrl ? recupererMetadonnees(lien.url) : null,
+    aChangeDeLien && peutEtreResolu(url) ? resoudreLiens(url) : null,
+  ]);
+  const partout = resolution?.ok ? resolution : null;
 
   await update<Track>("tracks", id, {
     provider: lien?.provider ?? "autre",
@@ -147,8 +241,11 @@ export async function modifierMorceau(
     url,
     title,
     artist: artist || undefined,
-    artworkUrl: actuel.artworkUrl ?? metadonnees?.artworkUrl,
+    artworkUrl: actuel.artworkUrl ?? metadonnees?.artworkUrl ?? partout?.pochette,
     note: note || undefined,
+    ...(aChangeDeLien
+      ? { liens: partout ? liensOuRien(partout.liens) : undefined, pageUrl: partout?.pageUrl }
+      : null),
   });
 
   rafraichir();

@@ -23,10 +23,17 @@ et la plateforme tourne avec un contenu d'exemple.
 
 ## Passer en mode conservé
 
+**Sans base de données, rien n'est sauvegardé.** En serverless, deux requêtes
+consécutives peuvent être servies par deux instances différentes : le repli en
+mémoire ne survit donc pas d'une page à l'autre. C'est la première chose à
+brancher.
+
 Rien à modifier dans le code : la plateforme détecte ce qui est branché.
 
 1. Vercel → **Storage** → **Create Database** → **Neon (Postgres)**, reliée au projet.
    La variable `DATABASE_URL` est ajoutée automatiquement.
+   N'importe quel autre Postgres convient aussi — Supabase, Railway, Render, une
+   machine à soi : il suffit de coller son adresse dans `DATABASE_URL`.
 2. Vercel → **Storage** → **Blob**. La variable `BLOB_READ_WRITE_TOKEN` est
    ajoutée automatiquement. C'est elle qui conserve les photos.
 3. **Redeploy**. Au premier chargement, la table est créée et le contenu

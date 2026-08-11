@@ -16,6 +16,11 @@ import { plural } from "@/lib/format";
  * a le droit de savoir : `secretPersonId` reste nul tant que la manche court,
  * sans quoi le mode défi n'aurait plus aucun sens — l'inspecteur du navigateur
  * donnerait la réponse en deux clics.
+ *
+ * Depuis que le tirage au sort se joue entièrement dans le navigateur, les
+ * seules manches en cours qui vivent ici sont les défis : celles dont la réponse
+ * a été choisie par l'autre et ne doit pas descendre. Le paquet, lui, part une
+ * seule fois avec la page — c'est tout ce dont le jeu a besoin ensuite.
  */
 
 function vueManche(manche: QuiEstCeManche): MancheVue {
@@ -44,12 +49,14 @@ export default async function QuiEstCePage() {
   );
 
   const mesManches = manches.filter((manche) => manche.player === who);
-  /** Celle en cours, sinon la dernière finie : le récapitulatif a le temps d'être lu. */
-  const courante = mesManches.find((manche) => manche.status === "en-cours") ?? mesManches[0] ?? null;
+  /** Un défi posé par l'autre et pas encore relevé : la seule manche encore arbitrée ici. */
+  const defi = mesManches.find((manche) => manche.status === "en-cours") ?? null;
+  /** La dernière finie, pour que le récapitulatif ait le temps d'être lu. */
+  const derniere = mesManches.find((manche) => manche.status !== "en-cours") ?? null;
 
   const historique = manches
-    .filter((manche) => manche.status !== "en-cours" && manche.id !== courante?.id)
-    .slice(0, 5)
+    .filter((manche) => manche.status !== "en-cours")
+    .slice(0, 6)
     .map(vueManche);
 
   const scores = {
@@ -74,7 +81,8 @@ export default async function QuiEstCePage() {
       <QuiEstCe
         who={who}
         paquet={paquet}
-        manche={courante ? vueManche(courante) : null}
+        defi={defi ? vueManche(defi) : null}
+        derniere={derniere ? vueManche(derniere) : null}
         historique={historique}
         scores={scores}
         autreEnCours={manches.some(

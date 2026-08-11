@@ -1,14 +1,16 @@
 import { notFound } from "next/navigation";
-import { requireWho } from "@/lib/auth";
+import { otherWho, requireWho } from "@/lib/auth";
 import { get, listMany } from "@/lib/data/store";
 import { PageHeader } from "@/components/page-header";
 import { EmptyState } from "@/components/ui";
 import { IconMusique } from "@/components/icons";
 import { plural, possessive } from "@/lib/format";
+import { plateformeDe } from "@/lib/musique";
 import type { Playlist, Settings, Track } from "@/lib/types";
 import { AjouterDesMorceaux } from "@/components/musique/ajouter-a-playlist";
 import { AjouterMorceau } from "@/components/musique/ajouter-morceau";
 import { CarteMorceau, type Avatars } from "@/components/musique/carte-morceau";
+import { PartagerPlaylist } from "@/components/musique/copier-liens";
 import { MenuPlaylist } from "@/components/musique/playlist-formulaire";
 import { PochetteComposite } from "@/components/musique/rangee-playlists";
 
@@ -42,6 +44,8 @@ export default async function PlaylistPage({
   const aimesDesDeux = dedans.filter(
     (track) => track.loves.includes("alice") && track.loves.includes("joseph"),
   ).length;
+  const plateforme = plateformeDe(who, reglages);
+  const plateformeAutre = plateformeDe(otherWho(who), reglages);
 
   return (
     <>
@@ -86,6 +90,15 @@ export default async function PlaylistPage({
           </div>
         </section>
 
+        {dedans.length > 0 ? (
+          <PartagerPlaylist
+            titre={playlist.title}
+            morceaux={dedans}
+            plateforme={plateforme}
+            plateformeAutre={plateformeAutre}
+          />
+        ) : null}
+
         <section>
           {dedans.length === 0 ? (
             <EmptyState icon={<IconMusique size={24} />} title="Playlist vide">
@@ -103,6 +116,7 @@ export default async function PlaylistPage({
                     playlistId={playlist.id}
                     index={rang + 1}
                     avatars={avatars}
+                    plateforme={plateforme}
                   />
                 </li>
               ))}

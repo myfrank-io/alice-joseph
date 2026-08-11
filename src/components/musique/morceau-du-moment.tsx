@@ -3,15 +3,15 @@
 import { useId, useMemo, useState } from "react";
 import { Avatar, cx } from "@/components/ui";
 import { formatShortDate, possessive } from "@/lib/format";
-import { estLienSur, lecteurPour } from "@/lib/musique";
-import type { Playlist, Track, Who } from "@/lib/types";
+import { lecteurPour, ouverturePour } from "@/lib/musique";
+import type { Plateforme, Playlist, Track, Who } from "@/lib/types";
 import type { Avatars } from "@/components/musique/carte-morceau";
 import { LecteurEmbarque } from "@/components/musique/lecteur";
 import { MenuMorceau } from "@/components/musique/menu-morceau";
 import {
   BoutonEcouter,
+  BoutonOuvrirSur,
   Coeurs,
-  LienDuService,
   MentionSansLecteur,
   Pochette,
 } from "@/components/musique/parties";
@@ -26,6 +26,7 @@ export function MorceauDuMoment({
   playlists,
   avatars,
   partage,
+  plateforme,
 }: {
   track: Track;
   who: Who;
@@ -33,11 +34,17 @@ export function MorceauDuMoment({
   avatars?: Avatars;
   /** Vrai quand les deux ont mis leur cœur : ça change ce qu'on raconte. */
   partage: boolean;
+  /** Le service de la personne connectée : il décide du bouton principal. */
+  plateforme?: Plateforme;
 }) {
   const [joue, setJoue] = useState(false);
   const idLecteur = useId();
   const lecteur = useMemo(() => lecteurPour(track), [track]);
+  const ouverture = useMemo(() => ouverturePour(track, plateforme), [track, plateforme]);
   const avatar = track.by === "alice" ? avatars?.alice : avatars?.joseph;
+
+  // Le lien d'origine ne vaut d'être montré que faute de lecteur intégré.
+  const ouvre = ouverture && !(ouverture.genre === "origine" && lecteur) ? ouverture : null;
 
   return (
     <section
@@ -101,19 +108,20 @@ export function MorceauDuMoment({
           <Coeurs trackId={track.id} loves={track.loves} who={who} taille={21} />
 
           <span className="ml-auto flex items-center gap-1">
+            {ouvre ? (
+              <BoutonOuvrirSur
+                ouverture={ouvre}
+                variant={ouvre.genre === "plateforme" ? "primary" : "soft"}
+              />
+            ) : null}
+
             {lecteur ? (
               <BoutonEcouter
                 joue={joue}
                 onToggle={() => setJoue((valeur) => !valeur)}
                 controle={idLecteur}
-                variant="primary"
-              />
-            ) : estLienSur(track.url) ? (
-              <LienDuService
-                url={track.url}
-                provider={track.provider}
-                titre={track.title}
-                variant="soft"
+                variant={ouvre?.genre === "plateforme" ? "soft" : "primary"}
+                compact={ouvre !== null}
               />
             ) : null}
 

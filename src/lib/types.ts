@@ -83,6 +83,13 @@ export interface Album extends Doc {
 
 export type MusicProvider = "spotify" | "youtube" | "deezer" | "apple" | "autre";
 
+/**
+ * Les services d'écoute que l'un ou l'autre peut avoir sur son téléphone.
+ * Ces clés sont exactement celles d'Odesli (song.link) : elles servent aussi
+ * bien à ranger les liens qu'à dire sur quoi chacun écoute.
+ */
+export type Plateforme = "spotify" | "deezer" | "appleMusic" | "youtube" | "youtubeMusic";
+
 export interface Track extends Doc {
   provider: MusicProvider;
   /** Identifiant chez le fournisseur, utilisé pour construire le lecteur intégré. */
@@ -96,6 +103,13 @@ export interface Track extends Doc {
   note?: string;
   playlistIds: string[];
   loves: Who[];
+  /**
+   * Le même morceau chez chaque service, résolu une fois pour toutes à l'ajout.
+   * C'est ce qui permet à l'un de coller du Spotify et à l'autre d'ouvrir Deezer.
+   */
+  liens?: Partial<Record<Plateforme, string>>;
+  /** La page universelle Odesli : le filet de sécurité quand un service manque. */
+  pageUrl?: string;
 }
 
 export type Tint = "fil" | "photos" | "musique" | "carte" | "jeux";
@@ -195,4 +209,8 @@ export interface Settings extends Doc {
   josephLabel: string;
   aliceAvatar?: string;
   josephAvatar?: string;
+  /** Le service sur lequel Alice écoute vraiment — elle seule le règle. */
+  alicePlateforme?: Plateforme;
+  /** Idem pour Joseph : c'est ce qui décide du bouton « Écouter sur… ». */
+  josephPlateforme?: Plateforme;
 }

@@ -13,18 +13,28 @@ import {
   IconCorbeille,
   IconCrayon,
   IconFermer,
+  IconLien,
   IconMusique,
   IconValider,
 } from "@/components/icons";
 import { IconPoints } from "@/components/musique/parties";
-import { ETAT_INITIAL } from "@/lib/musique";
+import { BoutonRetrouverLiens } from "@/components/musique/retrouver-liens";
+import {
+  ETAT_INITIAL,
+  PLATEFORMES,
+  attendSesLiens,
+  estLienSur,
+  nomPlateforme,
+  peutEtreResolu,
+} from "@/lib/musique";
 import type { Playlist, Track } from "@/lib/types";
 
-type Vue = "menu" | "modifier" | "playlists" | "supprimer" | null;
+type Vue = "menu" | "modifier" | "playlists" | "liens" | "supprimer" | null;
 
 const TITRES: Record<Exclude<Vue, null | "menu">, string> = {
   modifier: "Modifier le morceau",
   playlists: "Ranger dans une playlist",
+  liens: "Les liens chez les autres services",
   supprimer: "Supprimer ce morceau ?",
 };
 
@@ -57,6 +67,12 @@ export function MenuMorceau({
 
   const titre = vue === "menu" ? track.title : vue ? TITRES[vue] : "";
 
+  // Chercher n'a de sens que si le lien désigne vraiment un morceau : les
+  // morceaux d'exemple, eux, n'ont rien à chercher — et ne le disent pas.
+  const cherchable = peutEtreResolu(track.url);
+  const attend = attendSesLiens(track);
+  const trouves = PLATEFORMES.filter((plateforme) => estLienSur(track.liens?.[plateforme]));
+
   return (
     <>
       <button
@@ -88,6 +104,14 @@ export function MenuMorceau({
                 Ranger dans une playlist
               </button>
             </li>
+            {cherchable ? (
+              <li>
+                <button type="button" className={cx(LIGNE, "text-ink")} onClick={() => setVue("liens")}>
+                  <IconLien size={19} className="text-ink-3" />
+                  {attend ? "Retrouver les liens" : "Revoir les liens des autres services"}
+                </button>
+              </li>
+            ) : null}
             {playlistId ? (
               <li>
                 <button
@@ -172,6 +196,23 @@ export function MenuMorceau({
 
         {vue === "playlists" ? (
           <ChoixPlaylists track={track} playlists={playlists} />
+        ) : null}
+
+        {vue === "liens" ? (
+          <div className="flex flex-col gap-4">
+            {trouves.length > 0 ? (
+              <p className="text-sm leading-relaxed text-ink-2">
+                Ce morceau s’ouvre déjà sur{" "}
+                {trouves.map((plateforme) => nomPlateforme(plateforme)).join(", ")}.
+              </p>
+            ) : (
+              <p className="text-sm leading-relaxed text-ink-2">
+                Ce morceau n’a que son lien d’origine : celui de vous deux qui n’est pas sur ce
+                service doit passer par song.link.
+              </p>
+            )}
+            <BoutonRetrouverLiens trackId={track.id} />
+          </div>
         ) : null}
 
         {vue === "supprimer" ? (

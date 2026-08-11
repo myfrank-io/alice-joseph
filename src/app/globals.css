@@ -462,3 +462,25 @@
 .jeu-carte-verso {
   transform: rotateY(180deg);
 }
+
+/* ------------------------------ Chargement ---------------------------------
+   Le squelette affiché pendant que le serveur prépare la page. Une seule
+   respiration très lente : assez pour dire « ça arrive », assez discrète pour
+   ne pas attirer l'œil.
+-------------------------------------------------------------------------- */
+
+@keyframes respire {
+  0%,
+  100% {
+    opacity: 0.55;
+  }
+  50% {
+    opacity: 0.9;
+  }
+}
+
+.squelette {
+  background: var(--surface-2);
+  border-radius: var(--radius-sm);
+  animation: respire 1.6s ease-in-out infinite;
+}

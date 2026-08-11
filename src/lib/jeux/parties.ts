@@ -18,21 +18,31 @@ export function estQuiEstCe(doc: Doc): doc is QuiEstCeManche {
 
 export type ModeP4 = Connect4State["mode"];
 
-export const MODES: { valeur: ModeP4; titre: string; detail: string }[] = [
+/**
+ * `reseau` dit lesquels ont besoin d'une connexion.
+ *
+ * Un seul en a besoin, et pour une bonne raison : « chacun de son côté » fait
+ * passer la partie d'un téléphone à l'autre, il lui faut donc bien un endroit
+ * où l'attendre. Les deux autres se jouent entièrement dans le navigateur.
+ */
+export const MODES: { valeur: ModeP4; titre: string; detail: string; reseau: boolean }[] = [
   {
     valeur: "local",
     titre: "Sur le même téléphone",
     detail: "Chacun son tour, en se passant l’appareil.",
+    reseau: false,
   },
   {
     valeur: "distance",
     titre: "Chacun de son côté",
     detail: "La partie attend. L’autre la reprend quand il peut.",
+    reseau: true,
   },
   {
     valeur: "solo",
     titre: "Contre l’ordinateur",
     detail: "Il réfléchit vite et joue bien. Pas parfaitement.",
+    reseau: false,
   },
 ];
 

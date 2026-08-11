@@ -1,4 +1,4 @@
-import type { MusicProvider, Track } from "@/lib/types";
+import type { MusicProvider, Plateforme, Settings, Track, Who } from "@/lib/types";
 
 /**
  * Reconnaissance des liens de musique.
@@ -348,6 +348,197 @@ export function lecteurPour(
 /** Un lien affichable en toute sécurité dans un `href` ou un `src`. */
 export function estLienSur(url: string | undefined | null): url is string {
   return typeof url === "string" && /^https?:\/\//i.test(url.trim());
+}
+
+/** Au-delà, ce n'est plus l'adresse d'un morceau. */
+export const LONGUEUR_MAX_LIEN = 2000;
+
+/**
+ * Les hôtes qu'Odesli sait lire, au-delà de ce que l'app reconnaît elle-même.
+ * Sert à ne pas dépenser un appel — ils sont comptés — pour l'adresse d'un blog
+ * ou d'une page de recherche, et à laisser tranquilles les morceaux d'exemple,
+ * qui ne pointent vers aucun morceau précis.
+ */
+const HOTES_MUSIQUE = [
+  "song.link",
+  "album.link",
+  "odesli.co",
+  "spotify.com",
+  "spotify.link",
+  "deezer.com",
+  "deezer.page.link",
+  "dzr.page.link",
+  "apple.com",
+  "youtube.com",
+  "youtu.be",
+  "tidal.com",
+  "soundcloud.com",
+  "amazon.com",
+  "amazon.fr",
+  "napster.com",
+  "audiomack.com",
+  "bandcamp.com",
+  "pandora.com",
+];
+
+/** Vrai quand l'adresse désigne sans doute un morceau chez un service connu. */
+export function peutEtreResolu(url: string | undefined | null): url is string {
+  if (!estLienSur(url)) return false;
+  const brut = url.trim();
+  if (brut.length > LONGUEUR_MAX_LIEN) return false;
+
+  const adresse = versUrl(brut);
+  if (!adresse) return false;
+
+  // Une page de recherche ne désigne aucun morceau : c'est le cas du contenu
+  // d'exemple, qu'on ne veut surtout pas envoyer chercher.
+  if (/^\/(?:[a-z]{2}\/)?search\b/i.test(adresse.pathname)) return false;
+
+  const hote = adresse.hostname.toLowerCase();
+  return HOTES_MUSIQUE.some((connu) => hote === connu || hote.endsWith(`.${connu}`));
+}
+
+/* ------------------------------- Plateformes ------------------------------ */
+
+/**
+ * Chacun écoute sur son service. Tout ce qui suit sert à ce qu'un lien collé
+ * par l'un s'ouvre d'un seul geste chez l'autre. Les clés sont celles d'Odesli.
+ */
+export const PLATEFORMES: Plateforme[] = [
+  "spotify",
+  "deezer",
+  "appleMusic",
+  "youtubeMusic",
+  "youtube",
+];
+
+const NOMS_PLATEFORME: Record<Plateforme, string> = {
+  spotify: "Spotify",
+  deezer: "Deezer",
+  appleMusic: "Apple Music",
+  youtubeMusic: "YouTube Music",
+  youtube: "YouTube",
+};
+
+export function nomPlateforme(plateforme: Plateforme): string {
+  return NOMS_PLATEFORME[plateforme];
+}
+
+export function estPlateforme(valeur: unknown): valeur is Plateforme {
+  return typeof valeur === "string" && PLATEFORMES.some((p) => p === valeur);
+}
+
+type ReglagesPlateformes = Pick<Settings, "alicePlateforme" | "josephPlateforme">;
+
+/** La plateforme d'une personne, ou `undefined` tant qu'elle ne l'a pas dit. */
+export function plateformeDe(
+  who: Who,
+  reglages: ReglagesPlateformes | undefined | null,
+): Plateforme | undefined {
+  const brut = who === "alice" ? reglages?.alicePlateforme : reglages?.josephPlateforme;
+  return estPlateforme(brut) ? brut : undefined;
+}
+
+/** Le service d'un lien d'origine, quand il correspond à une plateforme d'écoute. */
+function plateformeDuProvider(provider: MusicProvider): Plateforme | null {
+  switch (provider) {
+    case "spotify":
+      return "spotify";
+    case "deezer":
+      return "deezer";
+    case "apple":
+      return "appleMusic";
+    case "youtube":
+      return "youtube";
+    default:
+      return null;
+  }
+}
+
+type MorceauLiens = Pick<Track, "provider" | "url" | "title"> &
+  Partial<Pick<Track, "liens" | "pageUrl">>;
+
+/**
+ * Tous les liens exploitables d'un morceau, un par service.
+ *
+ * Le lien d'origine compte : quand Joseph colle du Spotify, Joseph n'a besoin
+ * de rien d'autre pour l'ouvrir chez lui, même si Odesli n'a jamais répondu.
+ */
+export function liensDe(morceau: MorceauLiens): Partial<Record<Plateforme, string>> {
+  const propres: Partial<Record<Plateforme, string>> = {};
+
+  for (const plateforme of PLATEFORMES) {
+    const url = morceau.liens?.[plateforme];
+    if (estLienSur(url)) propres[plateforme] = url.trim();
+  }
+
+  const dorigine = plateformeDuProvider(morceau.provider);
+  if (dorigine && !propres[dorigine] && estLienSur(morceau.url)) {
+    propres[dorigine] = morceau.url.trim();
+  }
+  return propres;
+}
+
+/** Vrai quand le morceau n'a encore aucun lien partagé : candidat à la résolution. */
+export function attendSesLiens(morceau: MorceauLiens): boolean {
+  if (estLienSur(morceau.pageUrl)) return false;
+  return !PLATEFORMES.some((plateforme) => estLienSur(morceau.liens?.[plateforme]));
+}
+
+export type GenreOuverture = "plateforme" | "odesli" | "origine";
+
+export interface Ouverture {
+  genre: GenreOuverture;
+  url: string;
+  /** Ce qu'on écrit sur le bouton — jamais une promesse qu'on ne tient pas. */
+  label: string;
+  aria: string;
+}
+
+/**
+ * Ce que fait le bouton principal d'un morceau, pour la personne qui regarde.
+ *
+ * Dans l'ordre : son service à elle, sinon la page song.link où tous les
+ * services sont listés, sinon le lien d'origine — et le libellé dit lequel des
+ * trois, sans mentir.
+ */
+export function ouverturePour(
+  morceau: MorceauLiens,
+  plateforme: Plateforme | undefined,
+): Ouverture | null {
+  const liens = liensDe(morceau);
+  const direct = plateforme ? liens[plateforme] : undefined;
+
+  if (plateforme && direct) {
+    const service = nomPlateforme(plateforme);
+    return {
+      genre: "plateforme",
+      url: direct,
+      label: `Écouter sur ${service}`,
+      aria: `Écouter « ${morceau.title} » sur ${service}, dans un nouvel onglet`,
+    };
+  }
+
+  if (estLienSur(morceau.pageUrl)) {
+    return {
+      genre: "odesli",
+      url: morceau.pageUrl.trim(),
+      label: "Ouvrir ailleurs",
+      aria: `Ouvrir « ${morceau.title} » sur song.link, qui donne le lien de chaque service, dans un nouvel onglet`,
+    };
+  }
+
+  if (estLienSur(morceau.url)) {
+    const service = morceau.provider === "autre" ? "le service d’origine" : nomFournisseur(morceau.provider);
+    return {
+      genre: "origine",
+      url: morceau.url.trim(),
+      label: "Ouvrir",
+      aria: `Ouvrir « ${morceau.title} » sur ${service}, dans un nouvel onglet`,
+    };
+  }
+
+  return null;
 }
 
 /* -------------------------------- Métadonnées ----------------------------- */

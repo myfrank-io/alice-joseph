@@ -148,6 +148,85 @@ export function aEcarter(restants: Person[], q: Question, reponse: boolean): str
     .map((personne) => personne.id);
 }
 
+/* --------------------------- Rejouer une manche --------------------------- */
+
+export interface BilanManche {
+  /** Les étapes retenues : celles qui ne séparaient plus rien sont tombées. */
+  etapes: Etape[];
+  eliminated: string[];
+  /** Questions posées, plus la pénalité de chaque erreur. */
+  questionsAsked: number;
+  erreurs: number;
+  status: QuiEstCeRound["status"];
+}
+
+/**
+ * Rejoue une manche depuis son historique, comme `etatDepuisCoups` rejoue une
+ * grille depuis ses coups.
+ *
+ * Le navigateur s'en sert pour afficher la manche en cours à partir des seules
+ * étapes rangées dans `localStorage` ; le serveur s'en sert pour recalculer ce
+ * qu'il enregistre au lieu de croire un compteur venu d'ailleurs. Une même
+ * fonction des deux côtés, donc jamais deux vérités.
+ *
+ * Quand le secret est connu (c'est le cas partout sauf s'il a quitté le paquet
+ * entre-temps), les réponses sont recalculées à partir de ses attributs : une
+ * réponse falsifiée dans l'historique n'a aucun effet.
+ */
+export function bilanManche(
+  paquet: Person[],
+  secret: Person | null,
+  etapes: Etape[],
+): BilanManche {
+  const elimines: string[] = [];
+  const retenues: Etape[] = [];
+  let questions = 0;
+  let erreurs = 0;
+  let status: QuiEstCeRound["status"] = "en-cours";
+
+  for (const etape of etapes) {
+    if (status !== "en-cours") break;
+
+    if (etape.type === "question") {
+      const q = question(etape.questionId);
+      if (!q) continue;
+      const restants = candidats(paquet, elimines);
+      const reponse = secret ? q.test(secret.traits) : etape.reponse;
+      const ecartes = aEcarter(restants, q, reponse);
+      // Une question qui n'écarte plus personne n'a pas été posée : elle ne compte pas.
+      if (ecartes.length === 0) continue;
+      elimines.push(...ecartes);
+      questions += 1;
+      retenues.push({ type: "question", questionId: q.id, reponse, elimines: ecartes.length });
+      continue;
+    }
+
+    const juste = secret ? etape.personneId === secret.id : etape.juste;
+    retenues.push({ type: "essai", personneId: etape.personneId, juste });
+    if (juste) {
+      status = "gagnee";
+      break;
+    }
+    if (!elimines.includes(etape.personneId)) elimines.push(etape.personneId);
+    erreurs += 1;
+    if (erreurs >= ERREURS_MAX) status = "perdue";
+  }
+
+  return {
+    etapes: retenues,
+    eliminated: elimines,
+    questionsAsked: questions + PENALITE_ERREUR * erreurs,
+    erreurs,
+    status,
+  };
+}
+
+/** Un visage au hasard dans le paquet, ou null s'il est vide. */
+export function tirerAuHasard(paquet: Person[], hasard: () => number = Math.random): Person | null {
+  if (paquet.length === 0) return null;
+  return paquet[Math.floor(hasard() * paquet.length)] ?? paquet[0];
+}
+
 /* --------------------------------- Scores --------------------------------- */
 
 export interface ScoreQuiEstCe {
