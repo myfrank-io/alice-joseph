@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useRef, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 import { cx } from "@/components/ui";
 import { IconFermer } from "@/components/icons";
 
@@ -8,6 +9,14 @@ import { IconFermer } from "@/components/icons";
  * Panneau modal : il monte du bas sur téléphone, s'affiche centré sur grand
  * écran. Une seule implémentation pour toutes les apps, pour que le geste soit
  * partout le même.
+ *
+ * Le panneau est rendu dans `document.body` par un portail, et ce n'est pas un
+ * détail : la plupart des panneaux s'ouvrent depuis le `action` du `PageHeader`,
+ * donc depuis l'intérieur d'un en-tête qui porte `backdrop-filter` (`.veil`).
+ * Or un `backdrop-filter` non nul devient bloc conteneur des descendants
+ * `position: fixed` — le `inset-0` se serait calé sur la bande d'en-tête au lieu
+ * du viewport, et le `z-50` serait resté prisonnier du contexte d'empilement de
+ * l'en-tête. Le portail met le panneau hors de portée de tout ancêtre.
  */
 export function Sheet({
   open,
@@ -27,6 +36,10 @@ export function Sheet({
   size?: "md" | "lg";
 }) {
   const panelRef = useRef<HTMLDivElement>(null);
+  const [monte, setMonte] = useState(false);
+
+  // `document` n'existe pas au rendu serveur : on n'ouvre le portail qu'ensuite.
+  useEffect(() => setMonte(true), []);
 
   useEffect(() => {
     if (!open) return;
@@ -47,9 +60,9 @@ export function Sheet({
     };
   }, [open, onClose]);
 
-  if (!open) return null;
+  if (!open || !monte) return null;
 
-  return (
+  return createPortal(
     <div className="fixed inset-0 z-50 flex items-end justify-center sm:items-center sm:p-6">
       <button
         type="button"
@@ -93,6 +106,7 @@ export function Sheet({
           <div className="safe-b border-t border-line bg-surface-2/60 px-5 py-3.5">{footer}</div>
         ) : null}
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
